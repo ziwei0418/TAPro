@@ -1,0 +1,65 @@
+# WSSS 2026 Research Project - Dependencies
+#
+# IMPORTANT: Do NOT install with `pip install -r requirements.txt` directly!
+# Some dependencies have special requirements.
+#
+# RECOMMENDED: Use the installation script instead:
+#   chmod +x install.sh
+#   bash install.sh
+#
+# OR install manually following QUICKSTART.md Section 1.5
+#
+# System requirements (Ubuntu/Debian):
+#   sudo apt-get install build-essential python3-dev
+#
+
+# Core dependencies
+torch>=2.0.0
+torchvision>=0.15.0
+numpy>=1.24.0
+opencv-python>=4.7.0
+pillow>=9.5.0
+tqdm>=4.65.0
+protobuf==3.20.3
+
+# Data augmentation
+albumentations>=1.3.0
+
+# Model architectures and pretrained models
+timm>=0.9.0
+transformers==4.35.2
+
+# Medical imaging models
+medclip==0.0.3
+# Note: CONCH is optional but recommended - install separately:
+# pip install git+https://github.com/Mahmoodlab/CONCH.git
+
+# Configuration management
+omegaconf>=2.3.0
+pyyaml>=6.0
+
+# Utilities
+opencv-python>=4.7.0
+scikit-learn>=1.2.0
+matplotlib>=3.7.0
+seaborn>=0.12.0
+icecream>=2.1.0
+
+# Test time augmentation
+ttach>=0.0.3
+
+# Fast superpixel segmentation
+fast_slic>=0.4.0
+
+# CRF post-processing (optional - install separately after system deps):
+# First: sudo apt-get install build-essential python3-dev
+# Then: pip install git+https://github.com/lucasb-eyer/pydensecrf.git
+
+# Development tools (optional)
+black>=23.0.0
+flake8>=6.0.0
+pytest>=7.3.0
+jupyter>=1.0.0
+
+# Hugging Face Hub (for model downloads)
+huggingface-hub>=0.15.0

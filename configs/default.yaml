@@ -1,0 +1,87 @@
+# ============================================================
+# Default Training Configuration for WSSS
+# ============================================================
+
+model:
+  hf_token: "REMOVED_HF_TOKEN"  # Replace with your HuggingFace token
+  fpn_out_dims: [64, 128, 320, 512]
+  label_feature_path: "data/prototypes/bcss_label_fea_pro_3333.pkl"
+  n_ratio: 0.5
+  use_lora: false  # Set to true for LoRA fine-tuning
+
+dataset:
+  name: "bcss"
+  train_root: "data/BCSS-WSSS/training"
+  val_root: "data/BCSS-WSSS"
+  test_root: "data/BCSS-WSSS"
+  cls_num_classes: 4  # TUM, STR, LYM, NEC
+  input_size: [224, 224]
+
+work_dir:
+  ckpt_dir: "checkpoints"
+  pred_dir: "predictions"
+  train_log_dir: "train_log"
+
+train:
+  # Training parameters
+  samples_per_gpu: 4
+  accum_steps: 4
+  epoch: 8
+  
+  # Multi-scale loss weights
+  l1: 0.0   # Scale 1 (56x56) weight
+  l2: 0.1   # Scale 2 (28x28) weight
+  l3: 1.0   # Scale 3 (14x14) weight
+  l4: 1.0   # Scale 4 (7x7) weight
+  l5: 0.05  # Contrastive loss weight
+  
+  # CAM generation
+  mask_adapter_alpha: 0.5
+  merge_train: "mean"  # or "max"
+  merge_test: "max"    # or "mean"
+  
+  # Augmentation and post-processing
+  use_tta: false       # Test-time augmentation
+  use_crf: false       # CRF post-processing
+  crf_iter_max: 10
+  crf_pos_w: 3
+  crf_pos_xy_std: 1
+  crf_bi_w: 4
+  crf_bi_xy_std: 67
+  crf_bi_rgb_std: 3
+  
+  # === SISH-Inspired Features ===
+  use_vq: true
+  vq_num_codes: 128
+  vq_code_dim: 256
+  vq_commitment_weight: 0.15
+  vq_cam_weight: 0.3        # Blend: (1-λ)*base + λ*vq
+  vq_loss_weight: 0.1
+  sem_reg_weight: 0.03      # Semantic regularization
+  
+  use_multires_consistency: true
+  multires_weight: 0.05
+  
+  use_binary_hash: true     # Hash hard negative mining
+  hash_dim: 128
+  hash_top_k: 16
+  hash_quant_weight: 0.01
+  hash_bank_capacity: 4096
+  
+  # === Hybrid Text-Visual Prototypes ===
+  use_text_proto: true
+  
+  # === Early Stopping ===
+  use_early_stop: true
+  patience: 2   # Number of epochs without improvement before stopping
+
+optimizer:
+  type: "AdamW"
+  learning_rate: 0.00005
+  betas: [0.9, 0.999]
+  weight_decay: 0.001
+
+scheduler:
+  warmup_iter: 0
+  warmup_ratio: 0.000001
+  power: 1.0

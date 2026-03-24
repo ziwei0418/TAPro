@@ -1,0 +1,50 @@
+Requirement already satisfied: scikit-learn in ./venv/lib/python3.13/site-packages (1.8.0)
+Collecting matplotlib
+  Downloading matplotlib-3.10.8-cp313-cp313-manylinux2014_x86_64.manylinux_2_17_x86_64.whl.metadata (52 kB)
+Collecting seaborn
+  Downloading seaborn-0.13.2-py3-none-any.whl.metadata (5.4 kB)
+Collecting icecream
+  Downloading icecream-2.1.10-py3-none-any.whl.metadata (1.5 kB)
+Requirement already satisfied: numpy>=1.24.1 in ./venv/lib/python3.13/site-packages (from scikit-learn) (2.4.3)
+Requirement already satisfied: scipy>=1.10.0 in ./venv/lib/python3.13/site-packages (from scikit-learn) (1.17.1)
+Requirement already satisfied: joblib>=1.3.0 in ./venv/lib/python3.13/site-packages (from scikit-learn) (1.5.3)
+Requirement already satisfied: threadpoolctl>=3.2.0 in ./venv/lib/python3.13/site-packages (from scikit-learn) (3.6.0)
+Collecting contourpy>=1.0.1 (from matplotlib)
+  Downloading contourpy-1.3.3-cp313-cp313-manylinux_2_27_x86_64.manylinux_2_28_x86_64.whl.metadata (5.5 kB)
+Collecting cycler>=0.10 (from matplotlib)
+  Using cached cycler-0.12.1-py3-none-any.whl.metadata (3.8 kB)
+Collecting fonttools>=4.22.0 (from matplotlib)
+  Downloading fonttools-4.61.1-cp313-cp313-manylinux1_x86_64.manylinux2014_x86_64.manylinux_2_17_x86_64.manylinux_2_5_x86_64.whl.metadata (114 kB)
+Collecting kiwisolver>=1.3.1 (from matplotlib)
+  Downloading kiwisolver-1.5.0-cp313-cp313-manylinux2014_x86_64.manylinux_2_17_x86_64.whl.metadata (5.1 kB)
+Requirement already satisfied: packaging>=20.0 in ./venv/lib/python3.13/site-packages (from matplotlib) (26.0)
+Requirement already satisfied: pillow>=8 in ./venv/lib/python3.13/site-packages (from matplotlib) (12.1.1)
+Collecting pyparsing>=3 (from matplotlib)
+  Downloading pyparsing-3.3.2-py3-none-any.whl.metadata (5.8 kB)
+Requirement already satisfied: python-dateutil>=2.7 in ./venv/lib/python3.13/site-packages (from matplotlib) (2.9.0.post0)
+Requirement already satisfied: pandas>=1.2 in ./venv/lib/python3.13/site-packages (from seaborn) (3.0.1)
+Collecting colorama>=0.3.9 (from icecream)
+  Downloading colorama-0.4.6-py2.py3-none-any.whl.metadata (17 kB)
+Requirement already satisfied: pygments>=2.2.0 in ./venv/lib/python3.13/site-packages (from icecream) (2.19.2)
+Collecting executing>=2.1.0 (from icecream)
+  Downloading executing-2.2.1-py2.py3-none-any.whl.metadata (8.9 kB)
+Collecting asttokens>=2.0.1 (from icecream)
+  Downloading asttokens-3.0.1-py3-none-any.whl.metadata (4.9 kB)
+Requirement already satisfied: six>=1.5 in ./venv/lib/python3.13/site-packages (from python-dateutil>=2.7->matplotlib) (1.17.0)
+Downloading matplotlib-3.10.8-cp313-cp313-manylinux2014_x86_64.manylinux_2_17_x86_64.whl (8.7 MB)
+   ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━ 8.7/8.7 MB 15.7 MB/s  0:00:00
+Downloading seaborn-0.13.2-py3-none-any.whl (294 kB)
+Downloading icecream-2.1.10-py3-none-any.whl (16 kB)
+Downloading asttokens-3.0.1-py3-none-any.whl (27 kB)
+Downloading colorama-0.4.6-py2.py3-none-any.whl (25 kB)
+Downloading contourpy-1.3.3-cp313-cp313-manylinux_2_27_x86_64.manylinux_2_28_x86_64.whl (362 kB)
+Using cached cycler-0.12.1-py3-none-any.whl (8.3 kB)
+Downloading executing-2.2.1-py2.py3-none-any.whl (28 kB)
+Downloading fonttools-4.61.1-cp313-cp313-manylinux1_x86_64.manylinux2014_x86_64.manylinux_2_17_x86_64.manylinux_2_5_x86_64.whl (4.9 MB)
+   ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━ 4.9/4.9 MB 23.8 MB/s  0:00:00
+Downloading kiwisolver-1.5.0-cp313-cp313-manylinux2014_x86_64.manylinux_2_17_x86_64.whl (1.5 MB)
+   ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━ 1.5/1.5 MB 23.1 MB/s  0:00:00
+Downloading pyparsing-3.3.2-py3-none-any.whl (122 kB)
+Installing collected packages: pyparsing, kiwisolver, fonttools, executing, cycler, contourpy, colorama, asttokens, matplotlib, icecream, seaborn
+
+Successfully installed asttokens-3.0.1 colorama-0.4.6 contourpy-1.3.3 cycler-0.12.1 executing-2.2.1 fonttools-4.61.1 icecream-2.1.10 kiwisolver-1.5.0 matplotlib-3.10.8 pyparsing-3.3.2 seaborn-0.13.2
