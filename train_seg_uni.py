@@ -402,10 +402,6 @@ class DiceLoss(nn.Module):
 
 
 class BootstrappedCE(nn.Module):
-    """
-    CHUẨN BOOTSTRAP: Trộn loss thực tế từ GT (pseudo label) và từ chính dự đoán của Model.
-    Giúp model không bị overfit vào nhiễu của pseudo label.
-    """
     def __init__(self, beta=0.3, ignore_index=255):
         super().__init__()
         self.beta = beta
@@ -414,15 +410,12 @@ class BootstrappedCE(nn.Module):
     def forward(self, logits, targets):
         valid = (targets != self.ig)
         
-        # Loss tính trên Pseudo Label (Ground Truth dỏm)
         ce_gt = F.cross_entropy(logits, targets, ignore_index=self.ig, reduction='none')
         
-        # Loss tính trên dự đoán hiện tại của Model (tự học tự sửa)
         with torch.no_grad():
             pseudo = logits.detach().argmax(dim=1)
         ce_model = F.cross_entropy(logits, pseudo, ignore_index=self.ig, reduction='none')
         
-        # Kết hợp theo tỉ lệ beta
         loss = (1.0 - self.beta) * ce_gt + self.beta * ce_model
         return loss[valid].mean()
 
