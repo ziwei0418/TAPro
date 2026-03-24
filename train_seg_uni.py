@@ -66,7 +66,7 @@ train:
   dice_weight: 0.5
   use_crf_val: false
   use_noise_robust_loss: true
-  noise_beta: 0.1        # SỬA: Hạ từ 0.3 xuống 0.1
+  noise_beta: 0.1
 
 work_dir:
   ckpt_dir: /kaggle/working/seg_ckpt
