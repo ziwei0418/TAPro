@@ -83,14 +83,12 @@ def export_framework_images(model, data_loader, cfg, save_dir='framework_figs', 
         cls_label = cls_label.cuda().float()
 
         # Forward pass
-        cls1, cam1, cls2, cam2, cls3, cam3, cls4, cam4, l_fea, k_list, aux = model(inputs)
+        cls2, cam2, cls3, cam3, cls4, cam4, l_fea, k_list, aux = model(inputs)
 
-        cam1_p = merge_subclass_cams_to_parent(cam1, k_list, method='max')
         cam2_p = merge_subclass_cams_to_parent(cam2, k_list, method='max')
         cam3_p = merge_subclass_cams_to_parent(cam3, k_list, method='max')
         cam4_p = merge_subclass_cams_to_parent(cam4, k_list, method='max')
 
-        cams1 = get_seg_label(cam1_p, inputs, cls_label).cuda()
         cams2 = get_seg_label(cam2_p, inputs, cls_label).cuda()
         cams3 = get_seg_label(cam3_p, inputs, cls_label).cuda()
         cams4 = get_seg_label(cam4_p, inputs, cls_label).cuda()
@@ -112,11 +110,9 @@ def export_framework_images(model, data_loader, cfg, save_dir='framework_figs', 
                 'cls_label': cls_label[b].cpu(),
                 'gt': gt,
                 'pred': pred,
-                'cam1_p': cam1_p[b].cpu(),
                 'cam2_p': cam2_p[b].cpu(),
                 'cam3_p': cam3_p[b].cpu(),
                 'cam4_p': cam4_p[b].cpu(),
-                'cam1_sub': cam1[b].cpu(),
                 'cam4_sub': cam4[b].cpu(),
                 'fuse': fuse[b].cpu(),
                 'fg_classes': fg_classes,
@@ -133,13 +129,11 @@ def export_framework_images(model, data_loader, cfg, save_dir='framework_figs', 
         inputs = inputs.cuda().float()
         cls_label = cls_label.cuda().float()
         
-        cls1, cam1, cls2, cam2, cls3, cam3, cls4, cam4, l_fea, k_list, aux = model(inputs)
-        cam1_p = merge_subclass_cams_to_parent(cam1, k_list, method='max')
+        cls2, cam2, cls3, cam3, cls4, cam4, l_fea, k_list, aux = model(inputs)
         cam2_p = merge_subclass_cams_to_parent(cam2, k_list, method='max')
         cam3_p = merge_subclass_cams_to_parent(cam3, k_list, method='max')
         cam4_p = merge_subclass_cams_to_parent(cam4, k_list, method='max')
         
-        cams1 = get_seg_label(cam1_p, inputs, cls_label).cuda()
         cams2 = get_seg_label(cam2_p, inputs, cls_label).cuda()
         cams3 = get_seg_label(cam3_p, inputs, cls_label).cuda()
         cams4 = get_seg_label(cam4_p, inputs, cls_label).cuda()
@@ -151,11 +145,9 @@ def export_framework_images(model, data_loader, cfg, save_dir='framework_figs', 
             'cls_label': cls_label[0].cpu(),
             'gt': labels[0].numpy(),
             'pred': torch.argmax(fuse[0], dim=0).cpu().numpy(),
-            'cam1_p': cam1_p[0].cpu(),
             'cam2_p': cam2_p[0].cpu(),
             'cam3_p': cam3_p[0].cpu(),
             'cam4_p': cam4_p[0].cpu(),
-            'cam1_sub': cam1[0].cpu(),
             'cam4_sub': cam4[0].cpu(),
             'fuse': fuse[0].cpu(),
             'fg_classes': list(range(4)),
@@ -173,9 +165,9 @@ def export_framework_images(model, data_loader, cfg, save_dir='framework_figs', 
 
     # 2. CAM heatmaps per scale
     for i, (cam_p, scale) in enumerate([
-        (d['cam1_p'], '56x56'), (d['cam2_p'], '28x28'),
+        (d['cam2_p'], '28x28'),
         (d['cam3_p'], '14x14'), (d['cam4_p'], '7x7')]):
-        save_cam_heatmap(cam_p[dom_cls], os.path.join(save_dir, f'02_cam_scale{i+1}_{scale}.png'))
+        save_cam_heatmap(cam_p[dom_cls], os.path.join(save_dir, f'02_cam_scale{i+2}_{scale}.png'))
 
     # 3. Per-class CAM heatmaps (scale 4)
     for c in range(4):

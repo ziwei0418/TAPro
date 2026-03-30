@@ -12,9 +12,9 @@ if project_root not in sys.path:
     sys.path.insert(0, project_root)
 
 from train_seg.config import load_config
-from train_seg.trainer import train_seg
+from train_seg.trainer import train_seg_with_self_training
 
 if __name__ == '__main__':
     cfg = load_config()
     print(f"Config:\n{cfg}")
-    train_seg(cfg)
+    train_seg_with_self_training(cfg)

@@ -1,5 +1,5 @@
 """
-Text encoder for tissue prototypes
+Text encoder for tissue prototypes — supports BCSS and LUAD
 """
 import torch
 
@@ -13,8 +13,8 @@ except ImportError:
 from medclip import MedCLIPModel, MedCLIPVisionModelViT, MedCLIPProcessor
 
 
-# Text prompts for MedCLIP/CONCH text encoder — 3 per class to match k_list=[3,3,3,3]
-TISSUE_TEXT_PROMPTS = [
+# BCSS text prompts — 3 per class to match k_list=[3,3,3,3]
+BCSS_TEXT_PROMPTS = [
     # TUM (3 subclasses)
     "dense cluster of tumor epithelial cells in breast tissue",
     "scattered invasive tumor cells with high nuclear grade",
@@ -32,9 +32,36 @@ TISSUE_TEXT_PROMPTS = [
     "early necrosis with pyknotic and karyorrhectic nuclei",
     "necrotic region with hemorrhagic extravasation",
 ]
-# NOTE: BACK (background) is intentionally excluded from text prototypes.
-# In WSSS, BG is computed implicitly as (1 - max_fg_cam)^10 in get_seg_label().
-# Adding BG prototypes would require changing k_list, total_classes, and all merge functions.
+
+# LUAD text prompts — 3 per class: TE, NEC, LYM, TAS
+LUAD_TEXT_PROMPTS = [
+    # TE (3 subclasses)
+    "dense cluster of tumor epithelial cells in lung adenocarcinoma",
+    "invasive lung tumor cells forming acinar or solid patterns",
+    "tumor epithelial cells with prominent nucleoli in lung tissue",
+    # NEC (3 subclasses)
+    "coagulative necrotic lung tissue with cell debris",
+    "necrotic tumor region with pyknotic nuclei in lung adenocarcinoma",
+    "extensive necrosis within tumor bed of lung tissue",
+    # LYM (3 subclasses)
+    "dense lymphocytic aggregate in lung tumor microenvironment",
+    "scattered tumor-infiltrating lymphocytes between lung cancer cells",
+    "lymphocyte-rich inflammatory region in lung tissue",
+    # TAS (3 subclasses)
+    "dense fibrous tumor-associated stroma surrounding lung cancer",
+    "loose reactive stroma with myofibroblasts in lung adenocarcinoma",
+    "stromal tissue supporting tumor epithelial growth in lung",
+]
+
+# Backward compat alias
+TISSUE_TEXT_PROMPTS = BCSS_TEXT_PROMPTS
+
+
+def get_text_prompts(dataset_name="bcss"):
+    """Get text prompts for the given dataset."""
+    if dataset_name == "luad":
+        return LUAD_TEXT_PROMPTS
+    return BCSS_TEXT_PROMPTS
 
 
 @torch.no_grad()

@@ -1,6 +1,7 @@
 # 🚀 QUICKSTART - Hướng dẫn cho người mới
 
 Hướng dẫn từng bước để train, validate và generate masks cho dự án WSSS.
+Hỗ trợ 2 bộ dữ liệu: **BCSS** (ung thư vú) và **LUAD-HistoSeg** (ung thư phổi).
 
 ---
 
@@ -8,10 +9,11 @@ Hướng dẫn từng bước để train, validate và generate masks cho dự 
 
 1. [Thiết lập môi trường lần đầu](#1-thiết-lập-môi-trường-lần-đầu)
 2. [Kích hoạt môi trường hàng ngày](#2-kích-hoạt-môi-trường-hàng-ngày)
-3. [Training model](#3-training-model)
-4. [Generate CAM/Masks](#4-generate-cammasks)
-5. [Visualization](#5-visualization)
-6. [Troubleshooting](#6-troubleshooting)
+3. [Stage 1: WSSS Training](#3-stage-1-wsss-training)
+4. [Stage 2: Generate CAM/Masks](#4-stage-2-generate-cammasks)
+5. [Stage 3: Segmentation Training](#5-stage-3-segmentation-training)
+6. [Visualization](#6-visualization)
+7. [Troubleshooting](#7-troubleshooting)
 
 ---
 
@@ -152,7 +154,7 @@ which python
 
 ---
 
-## 3. Training Model
+## 3. Stage 1: WSSS Training (CAM Generation)
 
 ### Bước 3.1: Chuẩn bị dữ liệu
 
@@ -185,20 +187,20 @@ cat configs/default.yaml
 ### Bước 3.3: Chạy training
 
 ```bash
-# Training với config mặc định
+# Training BCSS (mặc định)
 python scripts/train.py \
     --config configs/default.yaml \
+    --gpu 0
+
+# Training LUAD
+python scripts/train.py \
+    --config configs/luad.yaml \
     --gpu 0
 
 # Training với GPU khác (nếu có nhiều GPU)
 python scripts/train.py \
     --config configs/default.yaml \
     --gpu 1
-
-# Training với custom config
-python scripts/train.py \
-    --config configs/my_experiment.yaml \
-    --gpu 0
 ```
 
 ### Bước 3.4: Theo dõi training
@@ -237,9 +239,9 @@ ls -lh checkpoints/*/best_cam.pth
 
 ---
 
-## 4. Generate CAM/Masks
+## 4. Stage 2: Generate CAM/Masks
 
-### Bước 4.1: Generate cho tập test
+### Bước 4.1: Generate cho tập test (BCSS)
 
 ```bash
 # Sử dụng best checkpoint vừa train
@@ -292,38 +294,108 @@ eog predictions/sample_image.png  # Ubuntu
 feh predictions/sample_image.png  # Lightweight viewer
 ```
 
-**Định dạng mask:**
-- File PNG với palette colors
-- Mỗi pixel = 1 class:
-  - 0: TUM (Tumor) - Đỏ
-  - 1: STR (Stroma) - Xanh lá
-  - 2: LYM (Lymphocyte) - Xanh dương
-  - 3: NEC (Necrosis) - Tím
-  - 4: BACK (Background) - Trắng
+### Bước 4.5: Lệnh tương tự cho LUAD
+
+```bash
+# LUAD: Generate pseudo labels cho tập train
+python scripts/inference.py \
+    --config configs/luad.yaml \
+    --checkpoint checkpoints/luad/<timestamp>/best_cam.pth \
+    --split train --gpu 0
+
+# LUAD: Generate cho tập test
+python scripts/inference.py \
+    --config configs/luad.yaml \
+    --checkpoint checkpoints/luad/<timestamp>/best_cam.pth \
+    --split test --gpu 0
+
+# Output: predictions_luad/*.png
+```
+
+**Định dạng mask (BCSS):**
+- 0: TUM (Tumor) - Đỏ
+- 1: STR (Stroma) - Xanh lá
+- 2: LYM (Lymphocyte) - Xanh dương
+- 3: NEC (Necrosis) - Tím
+- 4: BACK (Background) - Trắng
+
+**Định dạng mask (LUAD):**
+- 0: TE (Tumor Epithelial) - Đỏ
+- 1: NEC (Necrosis) - Xanh lá
+- 2: LYM (Lymphocyte) - Xanh dương
+- 3: TAS (Tumor-Associated Stroma) - Tím
+- 4: BACK (Background) - Trắng
 
 ---
 
-## 5. Visualization
+## 5. Stage 3: Segmentation Training
 
-### Bước 5.1: Generate framework images (cho paper/presentation)
+Sau khi có pseudo labels từ Stage 2, train model segmentation.
+
+### Bước 5.1: Chạy segmentation training
+
+```bash
+# BCSS
+python train_seg/train_seg.py --dataset bcss
+
+# LUAD
+python train_seg/train_seg.py --dataset luad
+```
+
+### Bước 5.2: Theo dõi metrics
+
+```bash
+# Output log sẽ hiển thị:
+# Epoch 10/80 | Train Loss: 0.432 | Val mIoU: 68.5% | Test mIoU: 66.2%
+# Best model saved → checkpoints/seg_bcss/best_seg.pth
+```
+
+### Bước 5.3: Switch backbone (optional)
+
+Sửa trong `train_seg/config.py`:
+
+```yaml
+# Option 1: Phikon (default, recommended)
+model:
+  type: phikon
+  backbone: owkin/phikon
+
+# Option 2: SegFormer MIT-B3
+model:
+  type: segformer
+  backbone: nvidia/mit-b3
+
+# Option 3: CTransPath (lightweight)
+model:
+  type: ctranspath
+  backbone: wisdomik/QuiltNet-B-16
+```
+
+**Output:**
+- BCSS: `checkpoints/seg_bcss/best_seg.pth`
+- LUAD: `checkpoints/seg_luad/best_seg.pth`
+
+## 6. Visualization
+
+### Bước 6.1: Generate framework images (cho paper/presentation)
 
 ```bash
 python scripts/visualize.py \
     --config configs/default.yaml \
-    --checkpoint checkpoints/2026-03-09-14-30/best_cam.pth \
+    --checkpoint checkpoints/<timestamp>/best_cam.pth \
     --output_dir framework_figs \
     --gpu 0
 
 # Với ảnh cụ thể:
 python scripts/visualize.py \
     --config configs/default.yaml \
-    --checkpoint checkpoints/2026-03-09-14-30/best_cam.pth \
+    --checkpoint checkpoints/<timestamp>/best_cam.pth \
     --target_image "TCGA-EW-A1P7-DX1_xmin9808_ymin46395_MPP-0.2500+52.png" \
     --output_dir my_visualizations \
     --gpu 0
 ```
 
-### Bước 5.2: Kiểm tra visualizations
+### Bước 6.2: Kiểm tra visualizations
 
 ```bash
 # Xem danh sách file đã generate:
@@ -331,7 +403,6 @@ ls framework_figs/
 
 # Output sẽ có:
 # - 01_input.png                    # Input image
-# - 02_cam_scale1_56x56.png         # CAM scale 1
 # - 02_cam_scale2_28x28.png         # CAM scale 2
 # - 02_cam_scale3_14x14.png         # CAM scale 3
 # - 02_cam_scale4_7x7.png           # CAM scale 4
@@ -346,14 +417,11 @@ ls framework_figs/
 # - 07_cam_overlay.png              # CAM overlay on input
 # - 08_legend.png                   # Class legend
 # - vq_detail/                      # VQ codebook analysis (nếu use_vq=true)
-
-# Xem VQ details:
-ls framework_figs/vq_detail/
 ```
 
 ---
 
-## 6. Troubleshooting
+## 7. Troubleshooting
 
 ### ❌ Lỗi: Command 'python' not found
 
@@ -463,6 +531,8 @@ train:
 
 ## 📊 Workflow hoàn chỉnh
 
+### Workflow BCSS
+
 ```bash
 # === LẦN ĐẦU TIÊN ===
 cd ~/Desktop/WSSS_2026_RESEARCH
@@ -484,9 +554,34 @@ CKPT=$(ls -t checkpoints/*/best_cam.pth | head -1)
 python scripts/inference.py --config configs/default.yaml \
     --checkpoint $CKPT --split test --gpu 0
 
-# 4. Visualization
+# 4. Stage 3: Segmentation Training
+python train_seg/train_seg.py --dataset bcss
+
+# 5. Visualization
 python scripts/visualize.py --config configs/default.yaml \
     --checkpoint $CKPT --output_dir framework_figs --gpu 0
+
+# 5. Tắt venv (optional)
+deactivate
+```
+
+### Workflow LUAD
+
+```bash
+# 1. Kích hoạt venv
+cd ~/Desktop/WSSS_2026_RESEARCH
+source venv/bin/activate
+
+# 2. Stage 1: WSSS Training
+python scripts/train.py --config configs/luad.yaml --gpu 0
+
+# 3. Stage 2: Generate pseudo labels
+CKPT=$(ls -t checkpoints/luad/*/best_cam.pth | head -1)
+python scripts/inference.py --config configs/luad.yaml \
+    --checkpoint $CKPT --split train --gpu 0
+
+# 4. Stage 3: Segmentation Training
+python train_seg/train_seg.py --dataset luad
 
 # 5. Tắt venv (optional)
 deactivate
@@ -569,4 +664,5 @@ A: Không, chỉ giữ làm reference. Code hiện tại đã modular hóa.
 
 **Chúc bạn training thành công! 🎉**
 
-_Last updated: March 9, 2026_
+_Last updated: March 30, 2026_
+

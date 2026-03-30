@@ -9,7 +9,7 @@ import torch.nn.functional as F
 from .encoder import UNIEncoder
 from .fpn import SimpleFeaturePyramid
 from .vq_modules import VQCodebook, VQCAMHead
-from .text_encoder import TISSUE_TEXT_PROMPTS, encode_text_prompts
+from .text_encoder import get_text_prompts, encode_text_prompts
 from src.losses.contrast_loss import MultiResConsistencyLoss
 
 
@@ -40,7 +40,7 @@ class ClsNetwork(nn.Module):
     def __init__(
         self,
         hf_token,
-        fpn_out_dims=(64, 128, 320, 512),
+        fpn_out_dims=(128, 320, 512),
         l_fea_path=None,
         n_ratio=0.5,
         use_lora=False,
@@ -51,9 +51,10 @@ class ClsNetwork(nn.Module):
         vq_cam_weight=0.3,
         use_multires_consistency=False,
         use_text_proto=False,
+        dataset_name="bcss",
     ):
         super().__init__()
-        self.in_channels = fpn_out_dims  # [64, 128, 320, 512]
+        self.in_channels = fpn_out_dims  # [128, 320, 512]
 
         # Frozen UNI encoder with optional LoRA
         self.encoder = UNIEncoder(hf_token=hf_token, img_size=224, use_lora=use_lora)
@@ -63,10 +64,9 @@ class ClsNetwork(nn.Module):
         self.pooling = F.adaptive_avg_pool2d
 
         ## AdaptiveLayer projects l_fea (512-dim) to match each scale
-        self.l_fc1 = AdaptiveLayer(512, n_ratio, self.in_channels[0])  # 512 -> 64
-        self.l_fc2 = AdaptiveLayer(512, n_ratio, self.in_channels[1])  # 512 -> 128
-        self.l_fc3 = AdaptiveLayer(512, n_ratio, self.in_channels[2])  # 512 -> 320
-        self.l_fc4 = AdaptiveLayer(512, n_ratio, self.in_channels[3])  # 512 -> 512
+        self.l_fc2 = AdaptiveLayer(512, n_ratio, self.in_channels[0])  # 512 -> 128
+        self.l_fc3 = AdaptiveLayer(512, n_ratio, self.in_channels[1])  # 512 -> 320
+        self.l_fc4 = AdaptiveLayer(512, n_ratio, self.in_channels[2])  # 512 -> 512
 
         # Load visual prototypes from pickle file
         with open(l_fea_path, "rb") as lf:
@@ -80,13 +80,14 @@ class ClsNetwork(nn.Module):
         # --- Hybrid Text-Visual Prototypes ---
         self.use_text_proto = use_text_proto
         if self.use_text_proto:
-            text_emb = encode_text_prompts(TISSUE_TEXT_PROMPTS)
+            prompts = get_text_prompts(dataset_name)
+            text_emb = encode_text_prompts(prompts)
             self.register_buffer('text_proto', text_emb)  # [12, 512]
             # Per-parent-class learnable blending: each of 4 classes gets its own α
             num_parents = len(self.k_list)  # 4 (TUM, STR, LYM, NEC)
             self.proto_alpha_raw = nn.Parameter(torch.zeros(num_parents))  # [4]
-            print(f"Hybrid text-visual prototypes enabled (per-class learnable alpha, init=0.5)")
-            print(f"  Text prompts: {len(TISSUE_TEXT_PROMPTS)}, Visual protos: {self.visual_proto.shape[0]}")
+            print(f"Hybrid text-visual prototypes enabled (per-class learnable alpha, init=0.5) [{dataset_name.upper()}]")
+            print(f"  Text prompts: {len(prompts)}, Visual protos: {self.visual_proto.shape[0]}")
             print(f"  Alpha shape: [{num_parents}] (one per parent class)")
             # --- Diagnostic: cross-modal alignment quality ---
             with torch.no_grad():
@@ -95,7 +96,10 @@ class ClsNetwork(nn.Module):
                 vp_norm = vp_cpu / (vp_cpu.norm(dim=-1, keepdim=True) + 1e-8)
                 cross_sim = text_emb_cpu @ vp_norm.t()  # [12, 12]
                 diag = cross_sim.diag()  # same-subclass similarity
-                class_names = ["TUM"]*3 + ["STR"]*3 + ["LYM"]*3 + ["NEC"]*3
+                if dataset_name == "luad":
+                    class_names = ["TE"]*3 + ["NEC"]*3 + ["LYM"]*3 + ["TAS"]*3
+                else:
+                    class_names = ["TUM"]*3 + ["STR"]*3 + ["LYM"]*3 + ["NEC"]*3
                 print(f"  -- Cross-modal alignment (text<->visual cosine sim) --")
                 for i, (name, sim_val) in enumerate(zip(class_names, diag)):
                     flag = "OK" if sim_val > 0.3 else "WARN" if sim_val > 0.1 else "BAD"
@@ -110,7 +114,6 @@ class ClsNetwork(nn.Module):
         # Backward compat: l_fea will be computed in forward()
         self.l_fea = self.visual_proto  # fallback if text_proto not used
 
-        self.logit_scale1 = nn.parameter.Parameter(torch.ones([1]) * 1 / 0.07)
         self.logit_scale2 = nn.parameter.Parameter(torch.ones([1]) * 1 / 0.07)
         self.logit_scale3 = nn.parameter.Parameter(torch.ones([1]) * 1 / 0.07)
         self.logit_scale4 = nn.parameter.Parameter(torch.ones([1]) * 1 / 0.07)
@@ -122,15 +125,15 @@ class ClsNetwork(nn.Module):
         self._current_epoch = 0
         _proto_dim = 512  # CONCH/UNI prototype space dimensionality
         if self.use_vq:
-            self.vq_head2 = VQCAMHead(self.in_channels[1], self.total_classes,
+            self.vq_head2 = VQCAMHead(self.in_channels[0], self.total_classes,
                                      num_codes=vq_num_codes, code_dim=vq_code_dim,
                                      commitment_weight=vq_commitment_weight,
                                      proto_dim=_proto_dim)
-            self.vq_head3 = VQCAMHead(self.in_channels[2], self.total_classes,
+            self.vq_head3 = VQCAMHead(self.in_channels[1], self.total_classes,
                                      num_codes=vq_num_codes, code_dim=vq_code_dim,
                                      commitment_weight=vq_commitment_weight,
                                      proto_dim=_proto_dim)
-            self.vq_head4 = VQCAMHead(self.in_channels[3], self.total_classes,
+            self.vq_head4 = VQCAMHead(self.in_channels[2], self.total_classes,
                                      num_codes=vq_num_codes, code_dim=vq_code_dim,
                                      commitment_weight=vq_commitment_weight,
                                      proto_dim=_proto_dim)
@@ -167,19 +170,18 @@ class ClsNetwork(nn.Module):
 
     def forward(self, x):
         # --- UNI encoder (frozen weights + trainable LoRA) ---
-        uni_feats = self.encoder(x)  # 4 x [B, 1024, 14, 14]
+        uni_feats = self.encoder(x)  # 3 x [B, 1024, 14, 14]
 
         # --- Trainable SFP ---
-        _x = self.sfp(uni_feats)  # P1(56x56), P2(28x28), P3(14x14), P4(7x7)
+        _x = self.sfp(uni_feats)  # P2(28x28), P3(14x14), P4(7x7)
 
-        logit_scale1 = self.logit_scale1
         logit_scale2 = self.logit_scale2
         logit_scale3 = self.logit_scale3
         logit_scale4 = self.logit_scale4
 
         imshape = [f.shape for f in _x]
         image_features = [f.permute(0, 2, 3, 1).reshape(-1, f.shape[1]) for f in _x]
-        _x1, _x2, _x3, _x4 = image_features
+        _x2, _x3, _x4 = image_features
 
         # --- Hybrid text-visual prototype blending ---
         if self.use_text_proto:
@@ -192,7 +194,6 @@ class ClsNetwork(nn.Module):
         else:
             l_fea = self.visual_proto
         l_fea = l_fea.to(x.device)
-        l_fea1 = self.l_fc1(l_fea)
         l_fea2 = self.l_fc2(l_fea)
         l_fea3 = self.l_fc3(l_fea)
         l_fea4 = self.l_fc4(l_fea)
@@ -205,19 +206,12 @@ class ClsNetwork(nn.Module):
         else:
             effective_vq_w = self.vq_cam_weight
 
-        # --- Scale 1 (56x56) — no VQ ---
-        _x1 = _x1 / _x1.norm(dim=-1, keepdim=True)
-        logits_per_image1 = logit_scale1 * _x1 @ l_fea1.t().float()
-        out1 = logits_per_image1.view(imshape[0][0], imshape[0][2], imshape[0][3], -1).permute(0, 3, 1, 2)
-        cam1 = out1.clone().detach()
-        cls1 = self.pooling(out1, (1, 1)).view(-1, self.total_classes)
-
         # --- Scale 2 (28x28) ---
         _x2 = _x2 / _x2.norm(dim=-1, keepdim=True)
         logits_per_image2 = logit_scale2 * _x2 @ l_fea2.t().float()
-        out2 = logits_per_image2.view(imshape[1][0], imshape[1][2], imshape[1][3], -1).permute(0, 3, 1, 2)
+        out2 = logits_per_image2.view(imshape[0][0], imshape[0][2], imshape[0][3], -1).permute(0, 3, 1, 2)
         if self.use_vq:
-            vq_cam2, vq_loss2 = self.vq_head2(_x2, imshape[1][2], imshape[1][3])
+            vq_cam2, vq_loss2 = self.vq_head2(_x2, imshape[0][2], imshape[0][3])
             total_vq_loss = total_vq_loss + vq_loss2
             out2 = (1 - effective_vq_w) * out2 + effective_vq_w * vq_cam2
         cam2 = out2.clone().detach()
@@ -226,9 +220,9 @@ class ClsNetwork(nn.Module):
         # --- Scale 3 (14x14) ---
         _x3 = _x3 / _x3.norm(dim=-1, keepdim=True)
         logits_per_image3 = logit_scale3 * _x3 @ l_fea3.t().float()
-        out3 = logits_per_image3.view(imshape[2][0], imshape[2][2], imshape[2][3], -1).permute(0, 3, 1, 2)
+        out3 = logits_per_image3.view(imshape[1][0], imshape[1][2], imshape[1][3], -1).permute(0, 3, 1, 2)
         if self.use_vq:
-            vq_cam3, vq_loss3 = self.vq_head3(_x3, imshape[2][2], imshape[2][3])
+            vq_cam3, vq_loss3 = self.vq_head3(_x3, imshape[1][2], imshape[1][3])
             total_vq_loss = total_vq_loss + vq_loss3
             out3 = (1 - effective_vq_w) * out3 + effective_vq_w * vq_cam3
         cam3 = out3.clone().detach()
@@ -237,9 +231,9 @@ class ClsNetwork(nn.Module):
         # --- Scale 4 (7x7) ---
         _x4 = _x4 / _x4.norm(dim=-1, keepdim=True)
         logits_per_image4 = logit_scale4 * _x4 @ l_fea4.t().float()
-        out4 = logits_per_image4.view(imshape[3][0], imshape[3][2], imshape[3][3], -1).permute(0, 3, 1, 2)
+        out4 = logits_per_image4.view(imshape[2][0], imshape[2][2], imshape[2][3], -1).permute(0, 3, 1, 2)
         if self.use_vq:
-            vq_cam4, vq_loss4 = self.vq_head4(_x4, imshape[3][2], imshape[3][3])
+            vq_cam4, vq_loss4 = self.vq_head4(_x4, imshape[2][2], imshape[2][3])
             total_vq_loss = total_vq_loss + vq_loss4
             out4 = (1 - effective_vq_w) * out4 + effective_vq_w * vq_cam4
         cam4 = out4.clone()
@@ -263,4 +257,4 @@ class ClsNetwork(nn.Module):
             'multires_loss': multires_loss,
             'sem_reg_loss': sem_reg_loss
         }
-        return cls1, cam1, cls2, cam2, cls3, cam3, cls4, cam4, l_fea, self.k_list, aux_losses
+        return cls2, cam2, cls3, cam3, cls4, cam4, l_fea, self.k_list, aux_losses

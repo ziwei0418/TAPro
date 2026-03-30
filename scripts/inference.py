@@ -14,7 +14,7 @@ from PIL import Image
 
 sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), '..')))
 
-from src.datasets.bcss_dataset import get_cls_dataset
+from src.datasets.bcss_dataset import get_cls_dataset, get_mean_std
 from src.models.network import ClsNetwork
 from src.utils.hierarchical import merge_subclass_cams_to_parent
 from src.utils.evaluate import get_seg_label
@@ -76,8 +76,9 @@ def generate_cam(model, data_loader, cfg, device='cuda:0'):
             bi_xy_std=getattr(cfg.train, 'crf_bi_xy_std', 67),
             bi_rgb_std=getattr(cfg.train, 'crf_bi_rgb_std', 3),
         )
-        MEAN = np.array([0.66791496, 0.47791372, 0.70623304])
-        STD = np.array([0.1736589, 0.22564577, 0.19820057])
+        MEAN_arr, STD_arr = get_mean_std(cfg.dataset.name)
+        MEAN = np.array(MEAN_arr)
+        STD = np.array(STD_arr)
         print("CRF post-processing enabled")
 
     PALETTE = [
@@ -96,16 +97,14 @@ def generate_cam(model, data_loader, cfg, device='cuda:0'):
             inputs = inputs.to(device).float()
             cls_label = cls_label.to(device).float()
 
-            cls1, cam1, cls2, cam2, cls3, cam3, cls4, cam4, l_fea, k_list, _ = model(inputs)
+            cls2, cam2, cls3, cam3, cls4, cam4, l_fea, k_list, _ = model(inputs)
 
             # Merge subclass CAMs to parent
-            cam1 = merge_subclass_cams_to_parent(cam1, k_list, method=cfg.train.merge_test)
             cam2 = merge_subclass_cams_to_parent(cam2, k_list, method=cfg.train.merge_test)
             cam3 = merge_subclass_cams_to_parent(cam3, k_list, method=cfg.train.merge_test)
             cam4 = merge_subclass_cams_to_parent(cam4, k_list, method=cfg.train.merge_test)
 
             # Get segmentation labels
-            cam1 = get_seg_label(cam1, inputs, cls_label).to(device)
             cam2 = get_seg_label(cam2, inputs, cls_label).to(device)
             cam3 = get_seg_label(cam3, inputs, cls_label).to(device)
             cam4 = get_seg_label(cam4, inputs, cls_label).to(device)
@@ -184,7 +183,8 @@ def main():
         vq_commitment_weight=cfg.train.vq_commitment_weight,
         vq_cam_weight=cfg.train.vq_cam_weight,
         use_multires_consistency=cfg.train.use_multires_consistency,
-        use_text_proto=getattr(cfg.train, 'use_text_proto', False)
+        use_text_proto=getattr(cfg.train, 'use_text_proto', False),
+        dataset_name=cfg.dataset.name,
     )
     
     checkpoint = torch.load(args.checkpoint, map_location=device, weights_only=False)

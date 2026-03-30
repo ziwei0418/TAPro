@@ -4,7 +4,7 @@
 
 model:
   hf_token: "REMOVED_HF_TOKEN"  # Replace with your HuggingFace token
-  fpn_out_dims: [64, 128, 320, 512]
+  fpn_out_dims: [128, 320, 512]
   label_feature_path: "data/prototypes/bcss_label_fea_pro_3333.pkl"
   n_ratio: 0.5
   use_lora: false  # Set to true for LoRA fine-tuning
@@ -29,7 +29,6 @@ train:
   epoch: 8
   
   # Multi-scale loss weights
-  l1: 0.0   # Scale 1 (56x56) weight
   l2: 0.1   # Scale 2 (28x28) weight
   l3: 1.0   # Scale 3 (14x14) weight
   l4: 1.0   # Scale 4 (7x7) weight

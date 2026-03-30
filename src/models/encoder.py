@@ -41,7 +41,7 @@ class UNIEncoder(nn.Module):
     LoRA is injected into attn.qkv of the target blocks.
     All outputs share the same spatial size: [B, 1024, grid, grid].
     """
-    BLOCK_IDXS = (5, 11, 17, 23)   # ViT-L has 24 blocks
+    BLOCK_IDXS = (11, 17, 23)   # ViT-L has 24 blocks (Block 5 removed — too shallow)
     EMBED_DIM  = 1024
 
     def __init__(self, hf_token, img_size=224, lora_rank=8, lora_alpha=8.0, use_lora=True):

@@ -96,7 +96,8 @@ def train(cfg, args):
                     vq_commitment_weight=cfg.train.vq_commitment_weight,
                     vq_cam_weight=cfg.train.vq_cam_weight,
                     use_multires_consistency=cfg.train.use_multires_consistency,
-                    use_text_proto=getattr(cfg.train, 'use_text_proto', False))
+                    use_text_proto=getattr(cfg.train, 'use_text_proto', False),
+                    dataset_name=cfg.dataset.name)
     
     total_p = sum(p.numel() for p in model.parameters())
     train_p = sum(p.numel() for p in model.parameters() if p.requires_grad)
@@ -166,9 +167,8 @@ def train(cfg, args):
             cls_labels = cls_labels.to(device).float()
 
             with torch.amp.autocast('cuda'):
-                cls1, cam1, cls2, cam2, cls3, cam3, cls4, cam4, l_fea, k_list, aux_losses = model(inputs)
+                cls2, cam2, cls3, cam3, cls4, cam4, l_fea, k_list, aux_losses = model(inputs)
 
-                cls1_merge = merge_to_parent_predictions(cls1, k_list, method=cfg.train.merge_train)
                 cls2_merge = merge_to_parent_predictions(cls2, k_list, method=cfg.train.merge_train)
                 cls3_merge = merge_to_parent_predictions(cls3, k_list, method=cfg.train.merge_train)
                 cls4_merge = merge_to_parent_predictions(cls4, k_list, method=cfg.train.merge_train)
@@ -201,11 +201,10 @@ def train(cfg, args):
                     hash_loss = torch.tensor(0.0, device=device)
 
                 # Multi-scale classification losses
-                loss1 = loss_function(cls1_merge, cls_labels)
                 loss2 = loss_function(cls2_merge, cls_labels)
                 loss3 = loss_function(cls3_merge, cls_labels)
                 loss4 = loss_function(cls4_merge, cls_labels)
-                cls_loss = cfg.train.l1 * loss1 + cfg.train.l2 * loss2 + cfg.train.l3 * loss3 + cfg.train.l4 * loss4
+                cls_loss = cfg.train.l2 * loss2 + cfg.train.l3 * loss3 + cfg.train.l4 * loss4
                 
                 _use_nce = getattr(cfg.train, 'use_contrastive', True)
                 _nce_w = 1.0 if _use_nce else 0.0

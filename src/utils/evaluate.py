@@ -12,8 +12,41 @@ except ImportError:
     tta = None
     print("Warning: ttach not installed. Test-time augmentation will be disabled.")
 
+try:
+    import pydensecrf.densecrf as dcrf
+    from pydensecrf.utils import unary_from_softmax
+    CRF_AVAILABLE = True
+except ImportError:
+    CRF_AVAILABLE = False
+
 from .pyutils import AverageMeter
 from .hierarchical import merge_to_parent_predictions, merge_subclass_cams_to_parent
+
+
+class DenseCRF:
+    """Dense CRF post-processing for semantic segmentation."""
+    def __init__(self, iter_max=10, pos_w=3, pos_xy_std=1, bi_w=4, bi_xy_std=67, bi_rgb_std=3):
+        self.iter_max = iter_max
+        self.pos_w = pos_w
+        self.pos_xy_std = pos_xy_std
+        self.bi_w = bi_w
+        self.bi_xy_std = bi_xy_std
+        self.bi_rgb_std = bi_rgb_std
+
+    def __call__(self, image, probmap):
+        C, H, W = probmap.shape
+        U = unary_from_softmax(probmap)
+        U = np.ascontiguousarray(U)
+        image = np.ascontiguousarray(image)
+        d = dcrf.DenseCRF2D(W, H, C)
+        d.setUnaryEnergy(U)
+        d.addPairwiseGaussian(sxy=self.pos_xy_std, compat=self.pos_w)
+        d.addPairwiseBilateral(
+            sxy=self.bi_xy_std, srgb=self.bi_rgb_std, rgbim=image, compat=self.bi_w
+        )
+        Q = d.inference(self.iter_max)
+        Q = np.array(Q).reshape((C, H, W))
+        return Q
 
 
 def compute_boundary_iou(gt, pred, num_classes, dilation=3):
@@ -190,18 +223,16 @@ def validate(model=None, data_loader=None, cfg=None, cls_loss_func=None):
             labels = labels.cuda()
             cls_label = cls_label.cuda().float()
 
-            cls1, cam1, cls2, cam2, cls3, cam3, cls4, cam4, l_fea, k_list, _ = model(inputs)
+            cls2, cam2, cls3, cam3, cls4, cam4, l_fea, k_list, _ = model(inputs)
 
-            cls1 = merge_to_parent_predictions(cls1, k_list, method=cfg.train.merge_test)
             cls2 = merge_to_parent_predictions(cls2, k_list, method=cfg.train.merge_test)
             cls3 = merge_to_parent_predictions(cls3, k_list, method=cfg.train.merge_test)
             cls4 = merge_to_parent_predictions(cls4, k_list, method=cfg.train.merge_test)
 
-            cls_loss1 = cls_loss_func(cls1, cls_label)
             cls_loss2 = cls_loss_func(cls2, cls_label)
             cls_loss3 = cls_loss_func(cls3, cls_label)
             cls_loss4 = cls_loss_func(cls4, cls_label)
-            cls_loss = cfg.train.l1 * cls_loss1 + cfg.train.l2 * cls_loss2 + cfg.train.l3 * cls_loss3 + cfg.train.l4 * cls_loss4
+            cls_loss = cfg.train.l2 * cls_loss2 + cfg.train.l3 * cls_loss3 + cfg.train.l4 * cls_loss4
 
             cls4 = (torch.sigmoid(cls4) > 0.5).float()
             all_cls_acc4 = (cls4 == cls_label).all(dim=1).float().sum() / cls4.shape[0] * 100
@@ -210,27 +241,17 @@ def validate(model=None, data_loader=None, cfg=None, cls_loss_func=None):
             
             if use_tta:
                 # Generate evaluation CAMs with TTA
-                cams1 = []
                 cams2 = []
                 cams3 = []
                 cams4 = []
                 for tta_trans in tta_transform:
                     augmented_tensor = tta_trans.augment_image(inputs)
-                    cls1, cam1, cls2, cam2, cls3, cam3, cls4, cam4, l_fea, k_list, _ = model(augmented_tensor)
+                    cls2, cam2, cls3, cam3, cls4, cam4, l_fea, k_list, _ = model(augmented_tensor)
 
-                    cam1 = merge_subclass_cams_to_parent(cam1, k_list, method=cfg.train.merge_test)
                     cam2 = merge_subclass_cams_to_parent(cam2, k_list, method=cfg.train.merge_test)
                     cam3 = merge_subclass_cams_to_parent(cam3, k_list, method=cfg.train.merge_test)
                     cam4 = merge_subclass_cams_to_parent(cam4, k_list, method=cfg.train.merge_test)
 
-                    cls1 = merge_to_parent_predictions(cls1, k_list, method=cfg.train.merge_test)
-                    cls2 = merge_to_parent_predictions(cls2, k_list, method=cfg.train.merge_test)
-                    cls3 = merge_to_parent_predictions(cls3, k_list, method=cfg.train.merge_test)
-                    cls4 = merge_to_parent_predictions(cls4, k_list, method=cfg.train.merge_test)
-
-                    cam1 = get_seg_label(cam1, augmented_tensor, cls_label).cuda()
-                    cam1 = tta_trans.deaugment_mask(cam1).unsqueeze(dim=0)
-                    cams1.append(cam1)
                     cam2 = get_seg_label(cam2, augmented_tensor, cls_label).cuda()
                     cam2 = tta_trans.deaugment_mask(cam2).unsqueeze(dim=0)
                     cams2.append(cam2)
@@ -241,27 +262,49 @@ def validate(model=None, data_loader=None, cfg=None, cls_loss_func=None):
                     cam4 = tta_trans.deaugment_mask(cam4).unsqueeze(dim=0)
                     cams4.append(cam4)
 
-                cams1 = torch.cat(cams1, dim=0).mean(dim=0)
                 cams2 = torch.cat(cams2, dim=0).mean(dim=0)
                 cams3 = torch.cat(cams3, dim=0).mean(dim=0)
                 cams4 = torch.cat(cams4, dim=0).mean(dim=0)
             else:
                 # No TTA: single forward pass for CAMs
-                cls1, cam1, cls2, cam2, cls3, cam3, cls4, cam4, l_fea, k_list, _ = model(inputs)
+                cls2, cam2, cls3, cam3, cls4, cam4, l_fea, k_list, _ = model(inputs)
 
-                cam1 = merge_subclass_cams_to_parent(cam1, k_list, method=cfg.train.merge_test)
                 cam2 = merge_subclass_cams_to_parent(cam2, k_list, method=cfg.train.merge_test)
                 cam3 = merge_subclass_cams_to_parent(cam3, k_list, method=cfg.train.merge_test)
                 cam4 = merge_subclass_cams_to_parent(cam4, k_list, method=cfg.train.merge_test)
 
-                cams1 = get_seg_label(cam1, inputs, cls_label).cuda()
                 cams2 = get_seg_label(cam2, inputs, cls_label).cuda()
                 cams3 = get_seg_label(cam3, inputs, cls_label).cuda()
                 cams4 = get_seg_label(cam4, inputs, cls_label).cuda()
 
             # Fuse multi-scale predictions
             fuse234 = 0.3 * cams2 + 0.3 * cams3 + 0.4 * cams4
-            fuse_label234 = torch.argmax(fuse234, dim=1).cuda()
+
+            # CRF post-processing
+            use_crf = getattr(cfg.train, 'use_crf', False) and CRF_AVAILABLE
+            if use_crf:
+                from src.datasets.bcss_dataset import get_mean_std
+                MEAN_arr, STD_arr = get_mean_std(getattr(cfg.dataset, 'name', 'bcss'))
+                MEAN_np = np.array(MEAN_arr)
+                STD_np = np.array(STD_arr)
+                crf_processor = DenseCRF(
+                    iter_max=getattr(cfg.train, 'crf_iter_max', 10),
+                    pos_w=getattr(cfg.train, 'crf_pos_w', 3),
+                    pos_xy_std=getattr(cfg.train, 'crf_pos_xy_std', 1),
+                    bi_w=getattr(cfg.train, 'crf_bi_w', 4),
+                    bi_xy_std=getattr(cfg.train, 'crf_bi_xy_std', 67),
+                    bi_rgb_std=getattr(cfg.train, 'crf_bi_rgb_std', 3),
+                )
+                probs = F.softmax(fuse234, dim=1)
+                refined_labels = []
+                for i in range(probs.shape[0]):
+                    img_np = inputs[i].cpu().numpy().transpose(1, 2, 0)
+                    img_rgb = ((img_np * STD_np + MEAN_np) * 255).clip(0, 255).astype(np.uint8)
+                    refined = crf_processor(img_rgb, probs[i].cpu().numpy().astype(np.float32))
+                    refined_labels.append(np.argmax(refined, axis=0))
+                fuse_label234 = torch.from_numpy(np.stack(refined_labels)).long().cuda()
+            else:
+                fuse_label234 = torch.argmax(fuse234, dim=1).cuda()
             
             fuse234_matrix.update(labels.detach().clone(), fuse_label234.clone())
 

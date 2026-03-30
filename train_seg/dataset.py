@@ -1,5 +1,6 @@
 # ============================================================
-# BCSS-WSSS Datasets & Augmentations for Segmentation Training
+# Datasets & Augmentations for Segmentation Training
+# Supports: BCSS-WSSS and LUAD-HistoSeg
 # ============================================================
 
 import os
@@ -43,25 +44,34 @@ def get_val_aug(mean, std):
     ])
 
 
-# ── Train Dataset ─────────────────────────────────────────────
+# ── Label parsing helpers ─────────────────────────────────────
 
-class BCSSTrainSeg(Dataset):
-    """
-    Dataset train BCSS-WSSS dùng pseudo label.
-    Cấu trúc thư mục:
-        train_root/   ← ảnh gốc (*.png, tên file chứa label: ...[0110]...)
-        pseudo_dir/   ← mask pseudo (*.png, cùng tên với ảnh)
-    """
-    CLASSES = ['TUM', 'STR', 'LYM', 'NEC']
+def _parse_bcss_label(filepath):
+    """Parse BCSS label from filename: ...[0110]... (no spaces)."""
+    term_split = re.split(r'\[|\]', filepath)
+    return np.array([int(x) for x in term_split[1]])
 
-    def __init__(self, img_root, pseudo_dir, transform=None, ignore_index=255):
+
+def _parse_luad_label(filepath):
+    """Parse LUAD label from filename: ...[1 0 1 0]... (space-separated)."""
+    fname = os.path.basename(filepath)[:-4]  # remove .png
+    label_str = fname.split(']')[0].split('[')[-1].split(' ')
+    return np.array([int(x) for x in label_str])
+
+
+# ── Base Train Dataset ────────────────────────────────────────
+
+class _BaseTrainSeg(Dataset):
+    """Base class for pseudo-label training datasets."""
+
+    def __init__(self, img_root, pseudo_dir, transform=None, ignore_index=255,
+                 label_parser=None, dataset_name=''):
         self.transform = transform
         self.ignore_index = ignore_index
         self.img_paths = []
         self.mask_paths = []
         self.cls_labels = []
 
-        # Scan images directly in img_root (no 'img' subfolder)
         all_imgs = glob.glob(os.path.join(img_root, '*.png'))
         for ip in sorted(all_imgs):
             mp = os.path.join(pseudo_dir, os.path.basename(ip))
@@ -69,12 +79,10 @@ class BCSSTrainSeg(Dataset):
                 continue
             self.img_paths.append(ip)
             self.mask_paths.append(mp)
-            # Parse class label từ tên file: ...[0110]...
-            term_split = re.split(r'\[|\]', ip)
-            cls_label = np.array([int(x) for x in term_split[1]])
-            self.cls_labels.append(cls_label)
+            if label_parser:
+                self.cls_labels.append(label_parser(ip))
 
-        print(f"  Train (BCSS): {len(self.img_paths)} paired samples")
+        print(f"  Train ({dataset_name}): {len(self.img_paths)} paired samples")
 
     def __len__(self):
         return len(self.img_paths)
@@ -86,7 +94,6 @@ class BCSSTrainSeg(Dataset):
         mask = np.array(Image.open(mp))
         if mask.ndim == 3:
             mask = mask[:, :, 0]
-        # Map BACK(4) → ignore_index, keep 0-3 (TUM, STR, LYM, NEC)
         mask[mask == 4] = self.ignore_index
         mask = mask.astype(np.uint8)
         if self.transform:
@@ -96,21 +103,12 @@ class BCSSTrainSeg(Dataset):
         return img, mask.long()
 
 
-# ── Val/Test Dataset ──────────────────────────────────────────
+# ── Base Val/Test Dataset ─────────────────────────────────────
 
-class BCSSValSeg(Dataset):
-    """
-    Dataset val/test BCSS-WSSS với ground-truth mask.
-    Cấu trúc thư mục:
-        root/
-            val/  (or test/)
-                img/    ← ảnh (*.png)
-                mask/   ← GT mask (*.png)
-    """
-    CLASSES = ['TUM', 'STR', 'LYM', 'NEC']
+class _BaseValSeg(Dataset):
+    """Base class for val/test datasets with GT masks."""
 
-    def __init__(self, img_root, split='val', transform=None):
-        assert split in ['val', 'valid', 'test'], "split must be one of [val, valid, test]"
+    def __init__(self, img_root, split='val', transform=None, dataset_name=''):
         self.transform = transform
         self.img_paths = []
         self.mask_paths = []
@@ -122,7 +120,7 @@ class BCSSValSeg(Dataset):
                 self.mask_paths.append(mp)
                 self.img_paths.append(ip)
 
-        print(f"  {split} (BCSS): {len(self.img_paths)} samples")
+        print(f"  {split} ({dataset_name}): {len(self.img_paths)} samples")
 
     def __len__(self):
         return len(self.img_paths)
@@ -134,10 +132,61 @@ class BCSSValSeg(Dataset):
         mask = np.array(Image.open(mp))
         if mask.ndim == 3:
             mask = mask[:, :, 0]
-        # Map BACK(4) → ignore_index=255
         mask[mask == 4] = 255
         if self.transform:
             t = self.transform(image=img, mask=mask)
             img = t['image']
             mask = t['mask']
         return img, mask.long()
+
+
+# ── BCSS Concrete Classes ─────────────────────────────────────
+
+class BCSSTrainSeg(_BaseTrainSeg):
+    CLASSES = ['TUM', 'STR', 'LYM', 'NEC']
+    def __init__(self, img_root, pseudo_dir, transform=None, ignore_index=255):
+        super().__init__(img_root, pseudo_dir, transform, ignore_index,
+                         label_parser=_parse_bcss_label, dataset_name='BCSS')
+
+
+class BCSSValSeg(_BaseValSeg):
+    CLASSES = ['TUM', 'STR', 'LYM', 'NEC']
+    def __init__(self, img_root, split='val', transform=None):
+        super().__init__(img_root, split, transform, dataset_name='BCSS')
+
+
+# ── LUAD Concrete Classes ─────────────────────────────────────
+
+class LUADTrainSeg(_BaseTrainSeg):
+    CLASSES = ['TE', 'NEC', 'LYM', 'TAS']
+    def __init__(self, img_root, pseudo_dir, transform=None, ignore_index=255):
+        super().__init__(img_root, pseudo_dir, transform, ignore_index,
+                         label_parser=_parse_luad_label, dataset_name='LUAD')
+
+
+class LUADValSeg(_BaseValSeg):
+    CLASSES = ['TE', 'NEC', 'LYM', 'TAS']
+    def __init__(self, img_root, split='val', transform=None):
+        super().__init__(img_root, split, transform, dataset_name='LUAD')
+
+
+# ── Factory ───────────────────────────────────────────────────
+
+def get_datasets(cfg, mean, std):
+    """Factory: returns (TrainDataset, ValDataset, TestDataset) for the given config."""
+    train_aug = get_train_aug(mean, std, cfg.train.crop_size)
+    val_aug = get_val_aug(mean, std)
+
+    ds_name = cfg.dataset.name.lower()
+    pseudo_dir = cfg.dataset.pseudo_dir
+
+    if ds_name == 'luad':
+        train_ds = LUADTrainSeg(cfg.dataset.train_root, pseudo_dir, train_aug, cfg.dataset.ignore_index)
+        val_ds = LUADValSeg(cfg.dataset.val_root, 'val', val_aug)
+        test_ds = LUADValSeg(cfg.dataset.test_root, 'test', val_aug)
+    else:  # bcss (default)
+        train_ds = BCSSTrainSeg(cfg.dataset.train_root, pseudo_dir, train_aug, cfg.dataset.ignore_index)
+        val_ds = BCSSValSeg(cfg.dataset.val_root, 'val', val_aug)
+        test_ds = BCSSValSeg(cfg.dataset.test_root, 'test', val_aug)
+
+    return train_ds, val_ds, test_ds
