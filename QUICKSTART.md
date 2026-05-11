@@ -1,668 +1,286 @@
-# 🚀 QUICKSTART - Hướng dẫn cho người mới
+# QUICKSTART
 
-Hướng dẫn từng bước để train, validate và generate masks cho dự án WSSS.
-Hỗ trợ 2 bộ dữ liệu: **BCSS** (ung thư vú) và **LUAD-HistoSeg** (ung thư phổi).
-
----
-
-## 📋 Mục lục
-
-1. [Thiết lập môi trường lần đầu](#1-thiết-lập-môi-trường-lần-đầu)
-2. [Kích hoạt môi trường hàng ngày](#2-kích-hoạt-môi-trường-hàng-ngày)
-3. [Stage 1: WSSS Training](#3-stage-1-wsss-training)
-4. [Stage 2: Generate CAM/Masks](#4-stage-2-generate-cammasks)
-5. [Stage 3: Segmentation Training](#5-stage-3-segmentation-training)
-6. [Visualization](#6-visualization)
-7. [Troubleshooting](#7-troubleshooting)
-
----
-
-## 1. Thiết lập môi trường lần đầu
-
-### Bước 1.1: Clone/Copy project về server
+## 1. Kích Hoạt Môi Trường
 
 ```bash
-cd ~
-# Nếu từ Git:
-git clone <repository_url> WSSS_2026_RESEARCH
-# Hoặc đã có sẵn thì bỏ qua bước này
-
-cd WSSS_2026_RESEARCH
-```
-
-### Bước 1.2: Tắt conda base (nếu đang dùng Anaconda)
-
-```bash
-# Kiểm tra prompt có (base) không
-# Nếu có thì tắt auto-activate:
-conda deactivate
-conda config --set auto_activate_base false
-
-# Đóng terminal và mở lại để áp dụng
-```
-
-### Bước 1.3: Cài đặt system dependencies (chỉ làm 1 lần)
-
-```bash
-# Ubuntu/Debian:
-sudo apt-get update
-sudo apt-get install -y build-essential python3-dev python3-venv
-
-# Kiểm tra Python version (nên >= 3.9)
-python3 --version
-```
-
-### Bước 1.4: Tạo virtual environment (chỉ làm 1 lần)
-
-```bash
-cd ~/WSSS_2026_RESEARCH
-
-# Tạo venv
-python3 -m venv venv
-
-# Kích hoạt lần đầu
-source venv/bin/activate
-
-# Prompt sẽ thành: (venv) username@server:~/WSSS_2026_RESEARCH$
-```
-
-### Bước 1.5: Cài đặt Python packages (chỉ làm 1 lần)
-
-**Cách 1: Dùng installation script (Khuyến nghị)**
-
-```bash
-# Đảm bảo venv đã active (có dòng (venv) ở prompt)
-chmod +x install.sh
-bash install.sh
-
-# Script sẽ:
-# - Kiểm tra Python version
-# - Cài từng nhóm dependencies
-# - Hỏi có muốn cài CONCH/pydensecrf không (optional)
-# - Verify installation tự động
-# Thời gian: ~10-15 phút
-```
-
-**Cách 2: Cài thủ công (nếu script lỗi)**
-
-```bash
-# Đảm bảo venv đã active
-pip install --upgrade pip setuptools wheel
-
-# 1. Core dependencies
-pip install torch>=2.0.0 torchvision>=0.15.0
-pip install numpy>=1.24.0 opencv-python>=4.7.0 pillow>=9.5.0 tqdm>=4.65.0
-pip install protobuf==3.20.3
-
-# 2. Model libraries
-pip install timm>=0.9.0 transformers==4.35.2
-
-# 3. Medical imaging (MedCLIP version 0.0.3, not 0.0.4!)
-pip install medclip==0.0.3
-
-# 4. CONCH (optional, recommended)
-pip install git+https://github.com/Mahmoodlab/CONCH.git
-
-# 5. Configuration
-pip install omegaconf>=2.3.0 pyyaml>=6.0
-
-# 6. Utilities
-pip install albumentations>=1.3.0 scikit-learn>=1.2.0
-pip install matplotlib>=3.7.0 seaborn>=0.12.0 icecream>=2.1.0
-pip install ttach>=0.0.3 fast_slic>=0.4.0
-
-# 7. CRF (optional, requires build tools)
-sudo apt-get install build-essential python3-dev
-pip install git+https://github.com/lucasb-eyer/pydensecrf.git
-
-# 8. HuggingFace
-pip install huggingface-hub>=0.15.0
-```
-
-**Verify cài đặt thành công:**
-
-```bash
-python -c "import torch; print(f'PyTorch version: {torch.__version__}')"
-python -c "import timm; print('timm OK')"
-python -c "import medclip; print('medclip OK')"
-python -c "from src.models.network import ClsNetwork; print('Project imports OK')"
-```
-
----
-
-## 2. Kích hoạt môi trường hàng ngày
-
-**Mỗi khi mở terminal mới**, làm theo các bước sau:
-
-```bash
-# Bước 1: Di chuyển vào thư mục project
 cd ~/Desktop/WSSS_2026_RESEARCH
-# Hoặc nếu ở home:
-# cd ~/WSSS_2026_RESEARCH
-
-# Bước 2: Kích hoạt venv
 source venv/bin/activate
-
-# Prompt sẽ thành: (venv) username@server:~/WSSS_2026_RESEARCH$
-
-# Bước 3: Kiểm tra Python đang dùng (optional)
-which python
-# Output phải là: /home/.../WSSS_2026_RESEARCH/venv/bin/python
 ```
 
-**Hoàn tất! Bây giờ có thể chạy training.**
-
----
-
-## 3. Stage 1: WSSS Training (CAM Generation)
-
-### Bước 3.1: Chuẩn bị dữ liệu
+Nếu chưa có `venv`:
 
 ```bash
-# Đảm bảo data đã có ở đúng đường dẫn
-# Kiểm tra config:
-cat configs/default.yaml | grep -A5 "dataset:"
-
-# Đường dẫn cần có:
-# - train_root: /path/to/training
-# - val_root: /path/to/validation  
-# - test_root: /path/to/test
-# - label_feature_path: /path/to/bcss_label_fea_pro_3333.pkl
-```
-
-### Bước 3.2: Kiểm tra config
-
-```bash
-# Xem toàn bộ config
-cat configs/default.yaml
-
-# Các tham số quan trọng:
-# - model.hf_token: "hf_xxx"  # HuggingFace token
-# - train.samples_per_gpu: 4   # Batch size (giảm nếu OOM)
-# - train.epoch: 8             # Số epochs
-# - train.use_vq: true         # Bật VQ codebook
-# - train.use_text_proto: true # Bật text prototypes
-```
-
-### Bước 3.3: Chạy training
-
-```bash
-# Training BCSS (mặc định)
-python scripts/train.py \
-    --config configs/default.yaml \
-    --gpu 0
-
-# Training LUAD
-python scripts/train.py \
-    --config configs/luad.yaml \
-    --gpu 0
-
-# Training với GPU khác (nếu có nhiều GPU)
-python scripts/train.py \
-    --config configs/default.yaml \
-    --gpu 1
-```
-
-### Bước 3.4: Theo dõi training
-
-```bash
-# Training log sẽ hiển thị:
-# - Elapsed time / ETA
-# - Learning rate
-# - Loss values
-# - Accuracy (all_acc4 / avg_acc4)
-# - Validation metrics mỗi epoch:
-#   * mIoU (mean Intersection over Union)
-#   * fwIoU (frequency-weighted IoU)
-#   * Boundary IoU
-#   * Dice score
-
-# Ví dụ output:
-# Iter: 100/1000; Elapsed: 0:05:23; ETA: 0:48:30; LR: 5.000e-05; Loss: 0.3421; Acc4: 78.42/85.31
-# 
-# [VAL]  mIoU: 65.32% | fwIoU: 71.23% | BdIoU: 58.45% | Dice: 78.91%
-# [TEST] mIoU: 63.87% | fwIoU: 69.56% | BdIoU: 57.12% | Dice: 77.34%
-```
-
-### Bước 3.5: Outputs sau khi training
-
-```bash
-# Checkpoint được lưu tại:
-checkpoints/YYYY-MM-DD-HH-MM/best_cam.pth
-
-# Ví dụ:
-# checkpoints/2026-03-09-14-30/best_cam.pth
-
-# Kiểm tra checkpoint vừa tạo:
-ls -lh checkpoints/*/best_cam.pth
-```
-
----
-
-## 4. Stage 2: Generate CAM/Masks
-
-### Bước 4.1: Generate cho tập test (BCSS)
-
-```bash
-# Sử dụng best checkpoint vừa train
-python scripts/inference.py \
-    --config configs/default.yaml \
-    --checkpoint checkpoints/2026-03-09-14-30/best_cam.pth \
-    --split test \
-    --gpu 0
-
-# Hoặc dùng wildcard để tự tìm checkpoint mới nhất:
-python scripts/inference.py \
-    --config configs/default.yaml \
-    --checkpoint $(ls -t checkpoints/*/best_cam.pth | head -1) \
-    --split test \
-    --gpu 0
-```
-
-### Bước 4.2: Generate cho tập train (để làm pseudo labels)
-
-```bash
-python scripts/inference.py \
-    --config configs/default.yaml \
-    --checkpoint checkpoints/2026-03-09-14-30/best_cam.pth \
-    --split train \
-    --gpu 0
-```
-
-### Bước 4.3: Generate cho tập validation
-
-```bash
-python scripts/inference.py \
-    --config configs/default.yaml \
-    --checkpoint checkpoints/2026-03-09-14-30/best_cam.pth \
-    --split val \
-    --gpu 0
-```
-
-### Bước 4.4: Kiểm tra outputs
-
-```bash
-# Masks được lưu tại:
-ls predictions/*.png
-
-# Xem số lượng masks đã tạo:
-ls predictions/*.png | wc -l
-
-# Xem mask bằng image viewer:
-eog predictions/sample_image.png  # Ubuntu
-# hoặc
-feh predictions/sample_image.png  # Lightweight viewer
-```
-
-### Bước 4.5: Lệnh tương tự cho LUAD
-
-```bash
-# LUAD: Generate pseudo labels cho tập train
-python scripts/inference.py \
-    --config configs/luad.yaml \
-    --checkpoint checkpoints/luad/<timestamp>/best_cam.pth \
-    --split train --gpu 0
-
-# LUAD: Generate cho tập test
-python scripts/inference.py \
-    --config configs/luad.yaml \
-    --checkpoint checkpoints/luad/<timestamp>/best_cam.pth \
-    --split test --gpu 0
-
-# Output: predictions_luad/*.png
-```
-
-**Định dạng mask (BCSS):**
-- 0: TUM (Tumor) - Đỏ
-- 1: STR (Stroma) - Xanh lá
-- 2: LYM (Lymphocyte) - Xanh dương
-- 3: NEC (Necrosis) - Tím
-- 4: BACK (Background) - Trắng
-
-**Định dạng mask (LUAD):**
-- 0: TE (Tumor Epithelial) - Đỏ
-- 1: NEC (Necrosis) - Xanh lá
-- 2: LYM (Lymphocyte) - Xanh dương
-- 3: TAS (Tumor-Associated Stroma) - Tím
-- 4: BACK (Background) - Trắng
-
----
-
-## 5. Stage 3: Segmentation Training
-
-Sau khi có pseudo labels từ Stage 2, train model segmentation.
-
-### Bước 5.1: Chạy segmentation training
-
-```bash
-# BCSS
-python train_seg/train_seg.py --dataset bcss
-
-# LUAD
-python train_seg/train_seg.py --dataset luad
-```
-
-### Bước 5.2: Theo dõi metrics
-
-```bash
-# Output log sẽ hiển thị:
-# Epoch 10/80 | Train Loss: 0.432 | Val mIoU: 68.5% | Test mIoU: 66.2%
-# Best model saved → checkpoints/seg_bcss/best_seg.pth
-```
-
-### Bước 5.3: Switch backbone (optional)
-
-Sửa trong `train_seg/config.py`:
-
-```yaml
-# Option 1: Phikon (default, recommended)
-model:
-  type: phikon
-  backbone: owkin/phikon
-
-# Option 2: SegFormer MIT-B3
-model:
-  type: segformer
-  backbone: nvidia/mit-b3
-
-# Option 3: CTransPath (lightweight)
-model:
-  type: ctranspath
-  backbone: wisdomik/QuiltNet-B-16
-```
-
-**Output:**
-- BCSS: `checkpoints/seg_bcss/best_seg.pth`
-- LUAD: `checkpoints/seg_luad/best_seg.pth`
-
-## 6. Visualization
-
-### Bước 6.1: Generate framework images (cho paper/presentation)
-
-```bash
-python scripts/visualize.py \
-    --config configs/default.yaml \
-    --checkpoint checkpoints/<timestamp>/best_cam.pth \
-    --output_dir framework_figs \
-    --gpu 0
-
-# Với ảnh cụ thể:
-python scripts/visualize.py \
-    --config configs/default.yaml \
-    --checkpoint checkpoints/<timestamp>/best_cam.pth \
-    --target_image "TCGA-EW-A1P7-DX1_xmin9808_ymin46395_MPP-0.2500+52.png" \
-    --output_dir my_visualizations \
-    --gpu 0
-```
-
-### Bước 6.2: Kiểm tra visualizations
-
-```bash
-# Xem danh sách file đã generate:
-ls framework_figs/
-
-# Output sẽ có:
-# - 01_input.png                    # Input image
-# - 02_cam_scale2_28x28.png         # CAM scale 2
-# - 02_cam_scale3_14x14.png         # CAM scale 3
-# - 02_cam_scale4_7x7.png           # CAM scale 4
-# - 03_cam4_TUM.png                 # Per-class CAMs
-# - 03_cam4_STR.png
-# - 03_cam4_LYM.png
-# - 03_cam4_NEC.png
-# - 04_pseudo_seg.png               # Predicted segmentation
-# - 05_ground_truth.png             # Ground truth
-# - 06_fg_masked.png                # Foreground masked
-# - 06_bg_masked.png                # Background masked
-# - 07_cam_overlay.png              # CAM overlay on input
-# - 08_legend.png                   # Class legend
-# - vq_detail/                      # VQ codebook analysis (nếu use_vq=true)
-```
-
----
-
-## 7. Troubleshooting
-
-### ❌ Lỗi: Command 'python' not found
-
-```bash
-# Dùng python3 thay vì python
-python3 scripts/train.py ...
-
-# Hoặc tạo alias:
-alias python=python3
-```
-
-### ❌ Lỗi: ModuleNotFoundError: No module named 'torch'
-
-```bash
-# Kiểm tra venv có active không:
-# Prompt phải có (venv) ở đầu
-# Nếu không, chạy:
-source venv/bin/activate
-
-# Nếu vẫn lỗi, cài lại:
-bash install.sh
-# hoặc cài thủ công theo hướng dẫn ở Bước 1.5
-```
-
-### ❌ Lỗi: Could not find a version that satisfies the requirement medclip>=0.0.4
-
-```bash
-# MedCLIP chỉ có version 0.0.1, 0.0.2, 0.0.3 (không có 0.0.4)
-# Fix: Cài version 0.0.3
-pip install medclip==0.0.3
-
-# Hoặc dùng install script đã fix sẵn:
-bash install.sh
-```
-
-### ❌ Lỗi: CUDA out of memory
-
-**Giải pháp 1: Giảm batch size**
-
-```yaml
-# Sửa trong configs/default.yaml:
-train:
-  samples_per_gpu: 2  # Giảm từ 4 → 2
-  accum_steps: 8      # Tăng từ 4 → 8 (giữ effective batch size)
-```
-
-**Giải pháp 2: Dùng CPU (chậm hơn nhiều)**
-
-```bash
-# Trong code, device sẽ tự động fallback sang CPU nếu không có CUDA
-python scripts/train.py --config configs/default.yaml --gpu 0
-```
-
-### ❌ Lỗi: HuggingFace token invalid
-
-```bash
-# Lấy token mới tại: https://huggingface.co/settings/tokens
-# Cần có quyền access model MahmoodLab/uni
-
-# Sửa trong configs/default.yaml:
-model:
-  hf_token: "hf_YOUR_NEW_TOKEN_HERE"
-```
-
-### ❌ Lỗi: FileNotFoundError - data path
-
-```bash
-# Kiểm tra đường dẫn trong config:
-cat configs/default.yaml | grep "root:"
-
-# Sửa đường dẫn cho đúng với server:
-dataset:
-  train_root: /path/to/your/data/training
-  val_root: /path/to/your/data/validation
-  test_root: /path/to/your/data/test
-```
-
-### ❌ Training bị đơ/treo
-
-```bash
-# Kiểm tra GPU đang làm gì:
-nvidia-smi
-
-# Kiểm tra process:
-ps aux | grep python
-
-# Kill process nếu cần:
-pkill -f "python scripts/train.py"
-
-# Xem log chi tiết hơn:
-python scripts/train.py --config configs/default.yaml --gpu 0 2>&1 | tee training.log
-```
-
-### ⚠️ Cảnh báo: pydensecrf not installed
-
-```bash
-# Không ảnh hưởng training, chỉ ảnh hưởng CRF post-processing
-# Nếu muốn dùng CRF, cài thêm:
-pip install git+https://github.com/lucasb-eyer/pydensecrf.git
-
-# Enable CRF trong config:
-train:
-  use_crf: true
-```
-
----
-
-## 📊 Workflow hoàn chỉnh
-
-### Workflow BCSS
-
-```bash
-# === LẦN ĐẦU TIÊN ===
-cd ~/Desktop/WSSS_2026_RESEARCH
 python3 -m venv venv
 source venv/bin/activate
-bash install.sh  # hoặc cài thủ công nếu script lỗi
-
-# === MỖI LẦN SỬ DỤNG ===
-
-# 1. Kích hoạt venv
-cd ~/Desktop/WSSS_2026_RESEARCH
-source venv/bin/activate
-
-# 2. Training
-python scripts/train.py --config configs/default.yaml --gpu 0
-
-# 3. Generate masks
-CKPT=$(ls -t checkpoints/*/best_cam.pth | head -1)
-python scripts/inference.py --config configs/default.yaml \
-    --checkpoint $CKPT --split test --gpu 0
-
-# 4. Stage 3: Segmentation Training
-python train_seg/train_seg.py --dataset bcss
-
-# 5. Visualization
-python scripts/visualize.py --config configs/default.yaml \
-    --checkpoint $CKPT --output_dir framework_figs --gpu 0
-
-# 5. Tắt venv (optional)
-deactivate
+pip install -r requirements.txt
 ```
 
-### Workflow LUAD
+Kiểm tra import cơ bản:
 
 ```bash
-# 1. Kích hoạt venv
-cd ~/Desktop/WSSS_2026_RESEARCH
-source venv/bin/activate
-
-# 2. Stage 1: WSSS Training
-python scripts/train.py --config configs/luad.yaml --gpu 0
-
-# 3. Stage 2: Generate pseudo labels
-CKPT=$(ls -t checkpoints/luad/*/best_cam.pth | head -1)
-python scripts/inference.py --config configs/luad.yaml \
-    --checkpoint $CKPT --split train --gpu 0
-
-# 4. Stage 3: Segmentation Training
-python train_seg/train_seg.py --dataset luad
-
-# 5. Tắt venv (optional)
-deactivate
+venv/bin/python -c "import torch; print(torch.__version__)"
+venv/bin/python -c "from src.models.network import ClsNetwork; print('imports ok')"
 ```
 
----
+## 2. Kiểm Tra Dữ Liệu Và Config
 
-## 🔧 Tips hữu ích
-
-### Chạy training trong background (không bị ngắt khi đóng SSH)
+Config full method:
 
 ```bash
-# Dùng nohup:
-nohup python scripts/train.py \
-    --config configs/default.yaml \
-    --gpu 0 > training_$(date +%Y%m%d_%H%M%S).log 2>&1 &
-
-# Xem log real-time:
-tail -f training_*.log
-
-# Kiểm tra process:
-ps aux | grep train.py
+configs/experiments/bcss_fixed_0p6_feature_region_abdiv_beta2.yaml
 ```
 
-### Chạy nhiều experiments song song
+Các path cần có:
+
+```text
+data/BCSS-WSSS/training
+data/BCSS-WSSS/val
+data/BCSS-WSSS/test
+data/prototypes/bcss_label_fea_pro_3333.pkl
+```
+
+Kiểm tra nhanh:
 
 ```bash
-# GPU 0:
-python scripts/train.py --config configs/exp1.yaml --gpu 0 &
-
-# GPU 1:
-python scripts/train.py --config configs/exp2.yaml --gpu 1 &
-
-# Theo dõi GPU usage:
-watch -n 1 nvidia-smi
+ls data/BCSS-WSSS
+ls data/prototypes/bcss_label_fea_pro_3333.pkl
 ```
 
-### Backup checkpoints định kỳ
+Nếu môi trường cần Hugging Face token để load UNI, kiểm tra trường:
+
+```yaml
+model:
+  hf_token: "..."
+```
+
+trong config.
+
+## 3. Chạy Full AB-TAGD
+
+Lệnh chính:
 
 ```bash
-# Tạo backup:
-tar -czf checkpoints_backup_$(date +%Y%m%d).tar.gz checkpoints/
-
-# Copy về local machine:
-scp user@server:~/WSSS_2026_RESEARCH/checkpoints_backup_*.tar.gz ./
+venv/bin/python scripts/train.py \
+  --config configs/experiments/bcss_fixed_0p6_feature_region_abdiv_beta2.yaml \
+  --gpu 0 \
+  --seed 42 \
+  --epoch 8
 ```
 
----
+Script sẽ tự làm các bước:
 
-## 📚 Tài liệu thêm
+1. Train WSSS model.
+2. Evaluate VAL/TEST mỗi epoch.
+3. Save `best_cam.pth` theo validation mIoU.
+4. Sau training, evaluate lại.
+5. Reload best checkpoint.
+6. Generate pseudo masks cho toàn bộ training set.
 
-- [README.md](README.md) - Tổng quan dự án
-- [USAGE.md](USAGE.md) - Hướng dẫn chi tiết API
-- [docs/RESTRUCTURING.md](docs/RESTRUCTURING.md) - Chi tiết kiến trúc
-- [docs/TODO.md](docs/TODO.md) - Danh sách tính năng
+Output theo config:
 
----
+```text
+train_log/bcss_fixed_0p6_feature_region_abdiv_beta2/
+├── checkpoints/<timestamp>_seed42/best_cam.pth
+└── predictions/*.png
+```
 
-## 💡 Hỏi đáp nhanh
+Lưu ý: hiện repo đã cleanup, nên thư mục output này có thể chưa tồn tại; script sẽ tạo lại khi chạy.
 
-**Q: Training mất bao lâu?**  
-A: ~2-4 giờ cho 8 epochs với GPU RTX 3090, ~6-8 giờ với RTX 2080 Ti.
+## 4. Chạy Ablation Paper
 
-**Q: Cần bao nhiêu VRAM?**  
-A: Tối thiểu 11GB (batch_size=4), khuyến nghị 16GB+ cho thoải mái.
+Lệnh chạy đủ 3 bảng với 3 seed:
 
-**Q: Có thể train trên CPU không?**  
-A: Có nhưng cực kỳ chậm (~50-100x), không khuyến nghị.
+```bash
+venv/bin/python scripts/run_wsss_paper_ablation.py \
+  --gpu 0 \
+  --seeds 42 3407 2026 \
+  --epoch 8 \
+  --tables 1 2 3
+```
 
-**Q: Làm sao biết model đang train tốt?**  
-A: Xem validation mIoU tăng dần mỗi epoch, loss giảm dần.
+Runner sẽ tạo một thư mục mới:
 
-**Q: Inference mất bao lâu?**  
-A: ~5-10 phút cho 200 ảnh (tập test BCSS).
+```text
+train_log/wsss_paper_ablation_<timestamp>/
+├── configs/
+├── logs/
+├── summary_raw.tsv
+├── summary_mean_std.txt
+└── work/*/checkpoints/*/best_cam.pth
+```
 
-**Q: File wsss.py có cần thiết không?**  
-A: Không, chỉ giữ làm reference. Code hiện tại đã modular hóa.
+Ablation hiện đã chạy xong và được giữ lại tại:
 
----
+```text
+train_log/wsss_paper_ablation_20260508_065932/
+```
 
-**Chúc bạn training thành công! 🎉**
+Trong thư mục này:
 
-_Last updated: March 30, 2026_
+```bash
+cat train_log/wsss_paper_ablation_20260508_065932/summary_mean_std.txt
+```
 
+Để xem raw từng seed:
+
+```bash
+column -t -s $'\t' train_log/wsss_paper_ablation_20260508_065932/summary_raw.tsv | less -S
+```
+
+## 5. Nội Dung Các Bảng Ablation
+
+Table 1: component ablation.
+
+```text
+Visual baseline
++ Text
++ Hybrid
++ Hybrid + AB-TAGD full
+```
+
+Table 2: prototype/source sensitivity.
+
+```text
+UNI + none + full AB-TAGD
+UNI + CLIP/MedCLIP-text + full AB-TAGD
+UNI + CONCH-text + full AB-TAGD
+Phikon / CONCH-vision rows: logged as unsupported nếu adapter chưa implement
+```
+
+Table 3: robustness/sensitivity của full method.
+
+```text
+ABDiv beta sweep
+without activation balance
+global lambda
+weak activation balance
+```
+
+Không dùng Table 3 để claim method mới tốt hơn Table 1 nếu chênh lệch nhỏ hơn std. Table 3 nên được viết là sensitivity/robustness analysis.
+
+## 6. Generate Lại Pseudo Masks Từ Checkpoint Ablation
+
+Trong ablation folder hiện tại, các thư mục `predictions/` đã được xóa để tiết kiệm dung lượng. Checkpoint vẫn còn.
+
+Ví dụ lấy checkpoint full method seed 42:
+
+```bash
+CKPT=$(find train_log/wsss_paper_ablation_20260508_065932/work/t1_full_abtagd_seed42/checkpoints -name best_cam.pth | head -1)
+echo "$CKPT"
+```
+
+Nếu cần generate lại pseudo masks, cách an toàn nhất là chạy lại full config hoặc tạo config mới trỏ `work_dir.pred_dir` tới thư mục output mong muốn. Script `scripts/train.py` hiện generate pseudo sau training; `scripts/inference.py` có thể dùng cho inference riêng nếu phù hợp với checkpoint/config đang dùng.
+
+## 7. Visualization
+
+Script visualization được giữ lại:
+
+```bash
+venv/bin/python scripts/visualize.py \
+  --config configs/experiments/bcss_fixed_0p6_feature_region_abdiv_beta2.yaml \
+  --checkpoint <path/to/best_cam.pth> \
+  --output_dir framework_figs \
+  --gpu 0
+```
+
+Nếu script yêu cầu option khác, kiểm tra:
+
+```bash
+venv/bin/python scripts/visualize.py --help
+```
+
+## 8. File Quan Trọng Cho Paper
+
+Method:
+
+```text
+paper/method_abtagd_miccai.tex
+paper/method_abtagd_miccai.md
+```
+
+Result:
+
+```text
+train_log/wsss_paper_ablation_20260508_065932/summary_mean_std.txt
+train_log/wsss_paper_ablation_20260508_065932/summary_raw.tsv
+```
+
+Code contribution:
+
+```text
+src/utils/cam_refine.py
+src/engine/wsss.py
+src/utils/evaluate.py
+src/models/network.py
+src/models/encoder.py
+```
+
+## 9. Troubleshooting
+
+### CUDA out of memory
+
+Giảm batch/micro-batch trong config:
+
+```yaml
+train:
+  samples_per_gpu: 2
+  accum_steps: 8
+```
+
+### Hugging Face token lỗi
+
+Sửa:
+
+```yaml
+model:
+  hf_token: "hf_xxx"
+```
+
+trong config full method.
+
+### Data path lỗi
+
+Kiểm tra:
+
+```bash
+grep -n "root\\|label_feature_path" configs/experiments/bcss_fixed_0p6_feature_region_abdiv_beta2.yaml
+```
+
+và sửa path cho đúng server.
+
+### Muốn chạy trong tmux
+
+```bash
+tmux new -s wsss
+venv/bin/python scripts/train.py \
+  --config configs/experiments/bcss_fixed_0p6_feature_region_abdiv_beta2.yaml \
+  --gpu 0 \
+  --seed 42 \
+  --epoch 8
+```
+
+Detach:
+
+```bash
+Ctrl-b d
+```
+
+Attach lại:
+
+```bash
+tmux attach -t wsss
+```
+
+Kill session:
+
+```bash
+tmux kill-session -t wsss
+```
+
+## 10. Ghi Nhớ
+
+- Method paper hiện tại là WSSS, không phải segmentation stage.
+- Full method là `Hybrid + Activation Balance + ABDiv-TAGD`.
+- Checkpoint ablation chính đang nằm trong `train_log/wsss_paper_ablation_20260508_065932/work/*/checkpoints`.
+- Pseudo predictions trong ablation đã xóa để tiết kiệm dung lượng, checkpoint vẫn còn.
+- Hyperparameter values nên để ở phần Experiments/Implementation Details, không nhét vào Method.

@@ -14,15 +14,22 @@ def pair_features(fg_features, bg_features, text_features, labels):
     paired_bg_text = [] 
  
     for i in range(len(batch_indices)):
+        curr_batch = batch_indices[i]
         curr_class = class_indices[i]
+        curr_batch_idx = int(curr_batch.item())
+        curr_class_idx = int(curr_class.item())
         
         curr_fg = fg_features[i]  # [D]
         curr_bg = bg_features[i]  # [D]
         
-        curr_fg_text = text_features[curr_class]  # [D]
-        
-        bg_text_indices = [j for j in range(text_features.shape[0]) if j != curr_class]
-        curr_bg_text = text_features[bg_text_indices]  # [3, D]
+        if text_features.dim() == 3:
+            curr_fg_text = text_features[curr_batch_idx, curr_class_idx]  # [D]
+            bg_text_indices = [j for j in range(text_features.shape[1]) if j != curr_class_idx]
+            curr_bg_text = text_features[curr_batch_idx, bg_text_indices]  # [K-1, D]
+        else:
+            curr_fg_text = text_features[curr_class_idx]  # [D]
+            bg_text_indices = [j for j in range(text_features.shape[0]) if j != curr_class_idx]
+            curr_bg_text = text_features[bg_text_indices]  # [K-1, D]
         
         paired_fg_features.append(curr_fg)
         paired_bg_features.append(curr_bg)

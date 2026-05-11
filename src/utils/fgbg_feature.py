@@ -103,7 +103,7 @@ class FeatureExtractor:
         fg_features, bg_features, fg_masks, bg_masks = self.extract_features(
             inputs, cam_224, cam_224_mask, label
         )
-        
+
         fg_features, bg_features = self.get_masked_features(
             fg_features, bg_features, fg_masks, bg_masks, clip_model
         )
@@ -114,7 +114,7 @@ class FeatureExtractor:
             'fg_masks': fg_masks,
             'bg_masks': bg_masks,
             'cam_224': cam_224,
-            'cam_224_mask': cam_224_mask
+            'cam_224_mask': cam_224_mask,
         }
 
     def print_debug_info(self, batch_info):

@@ -1,0 +1,207 @@
+\section{Method}
+\label{sec:method}
+
+We address weakly supervised semantic segmentation (WSSS) for histopathology, where each training image is annotated only with image-level tissue labels. Given an H\&E patch $x$ and a multi-label vector $y \in \{0,1\}^{C}$ over parent tissue classes, the goal is to generate dense pseudo masks without using pixel-level supervision, CRF post-processing, test-time augmentation, or external segmentation models. Our framework contains three stages: hybrid prototype-based CAM generation, activation-balanced CAM fusion, and attention-boundary tissue-adaptive graph diffusion (AB-TAGD).
+
+\subsection{Pathology Feature Pyramid}
+\label{subsec:feature_pyramid}
+
+We use a frozen pathology foundation encoder $E(\cdot)$ to extract dense visual tokens from the input image. A lightweight feature pyramid transforms the encoder tokens into multi-scale feature maps
+\begin{equation}
+    \{F_{\ell}\}_{\ell=1}^{4} = \mathrm{FPN}(E(x)),
+    \qquad
+    F_{\ell} \in \mathbb{R}^{B \times d_{\ell} \times H_{\ell} \times W_{\ell}} .
+\end{equation}
+The lower pyramid levels preserve finer spatial detail, while the deeper levels contain stronger tissue semantics. The encoder is kept frozen; trainable components are restricted to the feature pyramid, prototype projections, and scale-specific logit parameters.
+
+\subsection{Hybrid Text-Visual Tissue Prototypes}
+\label{subsec:hybrid_prototype}
+
+Histopathology classes contain both inter-class homogeneity and intra-class heterogeneity. Relying only on visual prototypes may miss semantic class priors, while relying only on text prototypes may be too coarse for dense tissue localization. We therefore construct subclass-level hybrid prototypes from a visual prototype bank and pathology text prototypes.
+
+Let $\mathcal{K}_c$ denote the set of subclasses associated with parent class $c$. For each subclass $k$, we have a visual prototype $v_k \in \mathbb{R}^{D}$ and a text prototype $t_k \in \mathbb{R}^{D}$. The hybrid prototype is
+\begin{equation}
+    p_k =
+    \frac{
+        \alpha_{\pi(k)} \, \bar{t}_k +
+        (1-\alpha_{\pi(k)}) \, \bar{v}_k
+    }{
+        \left\|
+        \alpha_{\pi(k)} \, \bar{t}_k +
+        (1-\alpha_{\pi(k)}) \, \bar{v}_k
+        \right\|_2
+    },
+    \label{eq:hybrid_proto}
+\end{equation}
+where $\bar{t}_k$ and $\bar{v}_k$ are $\ell_2$-normalized text and visual prototypes, $\pi(k)$ maps subclass $k$ to its parent tissue class, and $\alpha_{\pi(k)}$ controls the text-visual interpolation for that parent class. The prototype is then projected to each pyramid level by a level-specific projection head:
+\begin{equation}
+    p_{\ell,k} = \mathrm{Proj}_{\ell}(p_k), \qquad
+    p_{\ell,k} \in \mathbb{R}^{d_{\ell}} .
+\end{equation}
+
+\subsection{Multi-Scale Prototype CAM Learning}
+\label{subsec:cam_learning}
+
+For each pyramid level $\ell$, we compute dense subclass CAM logits by cosine similarity between normalized pixel features and normalized projected prototypes:
+\begin{equation}
+    A_{\ell,k}(u)
+    =
+    s_{\ell}
+    \left\langle
+    \frac{F_{\ell}(u)}{\|F_{\ell}(u)\|_2},
+    \frac{p_{\ell,k}}{\|p_{\ell,k}\|_2}
+    \right\rangle ,
+    \label{eq:subclass_cam}
+\end{equation}
+where $u$ indexes a spatial location and $s_{\ell}$ is a learnable scale factor. Image-level subclass logits are obtained by global average pooling:
+\begin{equation}
+    q_{\ell,k} = \mathrm{GAP}(A_{\ell,k}).
+\end{equation}
+Subclass predictions are merged into parent tissue predictions using the parent-subclass assignment:
+\begin{equation}
+    q_{\ell,c}^{\mathrm{par}}
+    =
+    \mathrm{Merge}\left(\{q_{\ell,k}: k \in \mathcal{K}_c\}\right).
+\end{equation}
+The classification objective is supervised only by image-level labels:
+\begin{equation}
+    \mathcal{L}_{\mathrm{cls}}
+    =
+    \sum_{\ell=1}^{4}
+    \rho_{\ell}
+    \,
+    \mathrm{BCE}\!\left(
+        q_{\ell}^{\mathrm{par}}, y
+    \right),
+    \label{eq:cls_loss}
+\end{equation}
+where $\rho_{\ell}$ are scale weights. In addition, we mine foreground and background regions from the deepest CAMs and use them to regularize prototype alignment:
+\begin{equation}
+    \mathcal{L}_{\mathrm{proto}}
+    =
+    \mathcal{L}_{\mathrm{FG}}
+    +
+    \mathcal{L}_{\mathrm{BG}},
+    \label{eq:proto_loss}
+\end{equation}
+where foreground tokens are encouraged to align with their tissue prototypes and background tokens are discouraged from collapsing into foreground prototype regions. The total image-level training objective is
+\begin{equation}
+    \mathcal{L}
+    =
+    \mathcal{L}_{\mathrm{cls}}
+    +
+    \lambda_{\mathrm{proto}}\mathcal{L}_{\mathrm{proto}}
+    +
+    \lambda_{\mathrm{cam}}\mathcal{R}_{\mathrm{cam}} .
+    \label{eq:total_loss}
+\end{equation}
+
+\subsection{Parent CAM Fusion and Activation Balance}
+\label{subsec:activation_balance}
+
+At inference, subclass CAMs are first merged into parent CAMs:
+\begin{equation}
+    A_{\ell,c}^{\mathrm{par}}(u)
+    =
+    \mathrm{Merge}\left(
+    \{A_{\ell,k}(u): k \in \mathcal{K}_c\}
+    \right).
+\end{equation}
+Absent classes are masked using the image-level labels, and each class CAM is normalized before resizing to the input resolution. We fuse the spatially reliable intermediate and deep CAMs:
+\begin{equation}
+    S_c
+    =
+    \sum_{\ell \in \mathcal{M}}
+    \omega_{\ell} A_{\ell,c}^{\mathrm{par}},
+    \qquad
+    \sum_{\ell \in \mathcal{M}}\omega_{\ell}=1,
+    \label{eq:cam_fusion}
+\end{equation}
+where $\mathcal{M}$ is the set of CAM scales used for pseudo-mask generation.
+
+Raw fused CAMs often have class-dependent activation bias: large tissue regions tend to dominate while small or weakly activated classes are suppressed. We therefore reshape class competition by class-wise power calibration. Let $\gamma_c$ be a class-specific exponent and let $m(u)=\sum_{j=1}^{C} S_j(u)$ be the original foreground mass. The calibrated distribution is
+\begin{equation}
+    \widehat{S}_c(u)
+    =
+    m(u)
+    \frac{
+        \left(S_c(u)+\epsilon\right)^{\gamma_c}
+    }{
+        \sum_{j=1}^{C}
+        \left(S_j(u)+\epsilon\right)^{\gamma_j}
+    } .
+    \label{eq:power_calibration}
+\end{equation}
+The final balanced CAM is a residual interpolation:
+\begin{equation}
+    \widetilde{S}_c
+    =
+    (1-\eta)\,S_c + \eta\,\widehat{S}_c .
+    \label{eq:activation_balance}
+\end{equation}
+This preserves the total foreground mass while changing the relative competition among tissue classes.
+
+\subsection{Attention-Boundary Tissue-Adaptive Graph Diffusion}
+\label{subsec:abtagd}
+
+The balanced CAMs still suffer from noisy local activations and boundary bleeding. We refine them with a one-step graph diffusion over the deepest feature tokens. Let $F_4$ be the deepest feature map, flattened into $n$ normalized token features $\{f_i\}_{i=1}^{n}$. We first build a feature-affinity graph using cosine similarity:
+\begin{equation}
+    K_{ij} = \langle f_i, f_j \rangle .
+\end{equation}
+Only sufficiently similar token pairs and self-edges are retained:
+\begin{equation}
+    \mathcal{N}(i)
+    =
+    \{j : K_{ij} \geq \delta\} \cup \{i\}.
+\end{equation}
+
+Feature similarity alone can connect different tissues with similar morphology. To prevent cross-boundary diffusion, we extract a self-attention boundary cue from the frozen encoder. Let $a_i$ be the self-attention profile associated with token $i$. The attention-boundary distance is
+\begin{equation}
+    D_{ij}
+    =
+    \frac{1}{2}
+    \left\|
+        a_i - a_j
+    \right\|_1 .
+    \label{eq:attn_distance}
+\end{equation}
+High $D_{ij}$ indicates a likely tissue boundary. We inject this cue directly into the graph logits:
+\begin{equation}
+    L_{ij}
+    =
+    \frac{K_{ij}}{\tau}
+    -
+    \beta D_{ij},
+    \qquad j \in \mathcal{N}(i).
+    \label{eq:graph_logits}
+\end{equation}
+The normalized attention-boundary tissue graph is
+\begin{equation}
+    W_{ij}
+    =
+    \frac{\exp(L_{ij})}
+    {\sum_{r \in \mathcal{N}(i)} \exp(L_{ir})}.
+    \label{eq:graph_softmax}
+\end{equation}
+
+For class $c$, the balanced CAM $\widetilde{S}_c$ is downsampled to the graph resolution and denoted by $s_c \in \mathbb{R}^{n}$. AB-TAGD performs one-step class-adaptive diffusion:
+\begin{equation}
+    z_c
+    =
+    (1-\lambda_c)s_c
+    +
+    \lambda_c W s_c ,
+    \label{eq:abtagd}
+\end{equation}
+where $\lambda_c$ is class-specific. Small, high-frequency classes can use weaker diffusion, while large and diffuse tissue regions can tolerate stronger propagation. The refined maps are upsampled to the input resolution and converted to pseudo masks by foreground argmax:
+\begin{equation}
+    \hat{Y}(u)
+    =
+    \arg\max_{c \in \{1,\ldots,C\}}
+    Z_c(u).
+    \label{eq:pseudo_mask}
+\end{equation}
+
+\paragraph{Why one step.}
+Repeated graph diffusion behaves as a low-pass filter and can erase small histological structures. AB-TAGD therefore uses a single residual graph update, which denoises CAMs along reliable feature regions while limiting over-propagation across tissue boundaries.
+

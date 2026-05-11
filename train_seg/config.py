@@ -37,6 +37,10 @@ train:
   lr: 0.00006
   backbone_lr_scale: 0.1
   weight_decay: 0.05
+  optimizer: adamw
+  ano_beta1: 0.92
+  ano_beta2: 0.99
+  ano_logarithmic_schedule: false
   warmup_epochs: 3
   label_smoothing: 0.0
   ce_weight: 1.0

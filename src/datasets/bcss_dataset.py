@@ -276,3 +276,40 @@ def get_cls_dataset(cfg, split="val", val_root=None, p=0.5, enable_rotation=True
             val_dataset = None
 
     return train_dataset, val_dataset
+
+
+def get_wsss_dataset(cfg, val_root=None):
+    """Load pseudo-label refinement dataset plus validation set.
+
+    Supports BCSS and LUAD without removing dataset-specific branches.
+    """
+    MEAN, STD = get_mean_std(cfg.dataset.name)
+    _val_root = val_root if val_root is not None else cfg.dataset.val_root
+
+    transform = {
+        "train": A.Compose([
+            A.Normalize(MEAN, STD),
+            A.HorizontalFlip(p=0.5),
+            A.VerticalFlip(p=0.5),
+            A.RandomRotate90(),
+            ToTensorV2(transpose_mask=True),
+        ]),
+        "val": A.Compose([
+            A.Normalize(MEAN, STD),
+            ToTensorV2(transpose_mask=True),
+        ])
+    }
+
+    ds_name = cfg.dataset.name.lower()
+    if ds_name == "luad":
+        train_dataset = LUADTrainingDataset(cfg.dataset.train_root, transform=transform["train"])
+        val_dataset = LUADTestDataset(_val_root, split="val", transform=transform["val"])
+    else:
+        train_dataset = BCSSWSSSDataset(
+            cfg.dataset.train_root,
+            mask_name=cfg.dataset.mask_root,
+            transform=transform["train"],
+        )
+        val_dataset = BCSSTestDataset(_val_root, split="valid", transform=transform["val"])
+
+    return train_dataset, val_dataset

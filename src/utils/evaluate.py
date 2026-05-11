@@ -21,6 +21,7 @@ except ImportError:
 
 from .pyutils import AverageMeter
 from .hierarchical import merge_to_parent_predictions, merge_subclass_cams_to_parent
+from .cam_refine import apply_cam_power_calibration, feature_region_refine_scores
 
 
 class DenseCRF:
@@ -50,7 +51,7 @@ class DenseCRF:
 
 
 def compute_boundary_iou(gt, pred, num_classes, dilation=3):
-    """Compute per-class Boundary IoU"""
+    """Compute per-class Boundary IoU for a single sample."""
     kernel = cv2.getStructuringElement(cv2.MORPH_ELLIPSE, (2*dilation+1, 2*dilation+1))
     per_class_intersection = np.zeros(num_classes, dtype=np.float64)
     per_class_union = np.zeros(num_classes, dtype=np.float64)
@@ -182,7 +183,7 @@ def get_seg_label(cams, inputs, label):
         bg_cam = (1 - cam_max) ** 10
         cam_all = torch.cat([cams, bg_cam], dim=1)
 
-    return cam_all
+    return cams
 
 
 def validate(model=None, data_loader=None, cfg=None, cls_loss_func=None):
@@ -223,16 +224,18 @@ def validate(model=None, data_loader=None, cfg=None, cls_loss_func=None):
             labels = labels.cuda()
             cls_label = cls_label.cuda().float()
 
-            cls2, cam2, cls3, cam3, cls4, cam4, l_fea, k_list, _ = model(inputs)
+            cls1, cam1, cls2, cam2, cls3, cam3, cls4, cam4, l_fea, k_list, _ = model(inputs)
 
+            cls1 = merge_to_parent_predictions(cls1, k_list, method=cfg.train.merge_test)
             cls2 = merge_to_parent_predictions(cls2, k_list, method=cfg.train.merge_test)
             cls3 = merge_to_parent_predictions(cls3, k_list, method=cfg.train.merge_test)
             cls4 = merge_to_parent_predictions(cls4, k_list, method=cfg.train.merge_test)
 
+            cls_loss1 = cls_loss_func(cls1, cls_label)
             cls_loss2 = cls_loss_func(cls2, cls_label)
             cls_loss3 = cls_loss_func(cls3, cls_label)
             cls_loss4 = cls_loss_func(cls4, cls_label)
-            cls_loss = cfg.train.l2 * cls_loss2 + cfg.train.l3 * cls_loss3 + cfg.train.l4 * cls_loss4
+            cls_loss = getattr(cfg.train, 'l1', 0.1) * cls_loss1 + cfg.train.l2 * cls_loss2 + cfg.train.l3 * cls_loss3 + cfg.train.l4 * cls_loss4
 
             cls4 = (torch.sigmoid(cls4) > 0.5).float()
             all_cls_acc4 = (cls4 == cls_label).all(dim=1).float().sum() / cls4.shape[0] * 100
@@ -241,17 +244,22 @@ def validate(model=None, data_loader=None, cfg=None, cls_loss_func=None):
             
             if use_tta:
                 # Generate evaluation CAMs with TTA
+                cams1 = []
                 cams2 = []
                 cams3 = []
                 cams4 = []
                 for tta_trans in tta_transform:
                     augmented_tensor = tta_trans.augment_image(inputs)
-                    cls2, cam2, cls3, cam3, cls4, cam4, l_fea, k_list, _ = model(augmented_tensor)
+                    cls1, cam1, cls2, cam2, cls3, cam3, cls4, cam4, l_fea, k_list, _ = model(augmented_tensor)
 
+                    cam1 = merge_subclass_cams_to_parent(cam1, k_list, method=cfg.train.merge_test)
                     cam2 = merge_subclass_cams_to_parent(cam2, k_list, method=cfg.train.merge_test)
                     cam3 = merge_subclass_cams_to_parent(cam3, k_list, method=cfg.train.merge_test)
                     cam4 = merge_subclass_cams_to_parent(cam4, k_list, method=cfg.train.merge_test)
 
+                    cam1 = get_seg_label(cam1, augmented_tensor, cls_label).cuda()
+                    cam1 = tta_trans.deaugment_mask(cam1).unsqueeze(dim=0)
+                    cams1.append(cam1)
                     cam2 = get_seg_label(cam2, augmented_tensor, cls_label).cuda()
                     cam2 = tta_trans.deaugment_mask(cam2).unsqueeze(dim=0)
                     cams2.append(cam2)
@@ -262,23 +270,44 @@ def validate(model=None, data_loader=None, cfg=None, cls_loss_func=None):
                     cam4 = tta_trans.deaugment_mask(cam4).unsqueeze(dim=0)
                     cams4.append(cam4)
 
+                cams1 = torch.cat(cams1, dim=0).mean(dim=0)
                 cams2 = torch.cat(cams2, dim=0).mean(dim=0)
                 cams3 = torch.cat(cams3, dim=0).mean(dim=0)
                 cams4 = torch.cat(cams4, dim=0).mean(dim=0)
             else:
                 # No TTA: single forward pass for CAMs
-                cls2, cam2, cls3, cam3, cls4, cam4, l_fea, k_list, _ = model(inputs)
+                cls1, cam1, cls2, cam2, cls3, cam3, cls4, cam4, l_fea, k_list, _ = model(inputs)
 
+                cam1 = merge_subclass_cams_to_parent(cam1, k_list, method=cfg.train.merge_test)
                 cam2 = merge_subclass_cams_to_parent(cam2, k_list, method=cfg.train.merge_test)
                 cam3 = merge_subclass_cams_to_parent(cam3, k_list, method=cfg.train.merge_test)
                 cam4 = merge_subclass_cams_to_parent(cam4, k_list, method=cfg.train.merge_test)
 
+                cams1 = get_seg_label(cam1, inputs, cls_label).cuda()
                 cams2 = get_seg_label(cam2, inputs, cls_label).cuda()
                 cams3 = get_seg_label(cam3, inputs, cls_label).cuda()
                 cams4 = get_seg_label(cam4, inputs, cls_label).cuda()
 
-            # Fuse multi-scale predictions
+            # Fuse multi-scale predictions (same as wsss copy 5: only scales 2,3,4)
             fuse234 = 0.3 * cams2 + 0.3 * cams3 + 0.4 * cams4
+            fuse234 = apply_cam_power_calibration(fuse234, cfg)
+            if getattr(cfg.train, 'use_feature_region_refine', False):
+                if getattr(cfg.train, 'use_attention_boundary_refine', False):
+                    uni_feats, attention_distance = model.encoder.forward_with_attention_distance(
+                        inputs,
+                        attn_block_idx=int(getattr(cfg.train, 'attention_boundary_block', 23)),
+                        target_size=int(getattr(cfg.train, 'attention_boundary_target_size', 7)),
+                    )
+                    feature_map = model.sfp(uni_feats)[3]
+                else:
+                    attention_distance = None
+                    feature_map = model.sfp(model.encoder(inputs))[3]
+                fuse234 = feature_region_refine_scores(
+                    fuse234,
+                    feature_map,
+                    cfg,
+                    attention_distance=attention_distance,
+                )
 
             # CRF post-processing
             use_crf = getattr(cfg.train, 'use_crf', False) and CRF_AVAILABLE
@@ -320,13 +349,20 @@ def validate(model=None, data_loader=None, cfg=None, cls_loss_func=None):
     acc_global, acc, iu, dice, dice_bg_fg, fwiu, biu = fuse234_matrix.compute()
     boundary_iou_per_class = boundary_iou_sum / max(boundary_iou_count, 1)
     
+    # Per-class frequency-weighted IoU
+    freq = fuse234_matrix.mat1.float().sum(1) / fuse234_matrix.mat1.float().sum()
+    fwiou_per_class = freq * iu
+
     metrics = {
-        'iou': iu,           # per-class IoU [C+1]
+        'iou': iu,                          # per-class IoU [C+1] (includes BG)
         'miou': iu[:-1].mean(),
-        'fwiou': fwiu,
-        'binary_iou': biu[1] if len(biu) > 1 else biu.mean(),  # foreground Binary IoU (fg vs bg)
-        'boundary_iou': boundary_iou_per_class[:4].mean(),  # mean Boundary IoU (4 FG classes)
+        'dice_per_class': dice,              # per-class Dice [C+1]
         'dice': dice[:-1].mean(),
+        'fwiou': fwiu,                       # scalar
+        'fwiou_per_class': fwiou_per_class,  # per-class freq-weighted IoU [C+1]
+        'binary_iou': biu[1] if len(biu) > 1 else biu.mean(),
+        'boundary_iou': boundary_iou_per_class[:4].mean(),
+        'boundary_iou_per_class': boundary_iou_per_class,  # numpy [5]
     }
     
     model.train()

@@ -1,297 +1,141 @@
-# Weakly-Supervised Semantic Segmentation for Histopathology
+# AB-TAGD for Weakly Supervised Histopathology Segmentation
 
-[![Python 3.8+](https://img.shields.io/badge/python-3.8+-blue.svg)](https://www.python.org/downloads/)
-[![PyTorch 2.0+](https://img.shields.io/badge/PyTorch-2.0+-red.svg)](https://pytorch.org/)
-[![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
+This repository contains the WSSS code used for the BCSS paper experiments. The main method is **AB-TAGD**: Activation-Balanced Attention-Boundary Tissue-Adaptive Graph Diffusion for pseudo-mask generation from image-level labels.
 
-## Overview
+The paper contribution is the WSSS pseudo-mask generation pipeline, not the optional downstream segmentation trainer.
 
-WSSS framework for histopathology segmentation — achieves semantic segmentation using **only image-level labels**. Supports two datasets: **BCSS** (breast cancer) and **LUAD-HistoSeg** (lung adenocarcinoma).
+## Method Summary
 
-The pipeline has 3 stages:
+Given an H&E patch with only image-level tissue labels, the pipeline:
 
-1. **Stage 1 — WSSS Training**: Train CAM generation model (UNI encoder + VQ codebooks + text-visual prototypes)
-2. **Stage 2 — Pseudo Label Generation**: Generate pseudo segmentation masks via multi-scale CAM fusion
-3. **Stage 3 — Segmentation Training**: Train segmentation model (Phikon/SegFormer/CTransPath) on pseudo labels
+1. Extracts frozen dense features using a UNI pathology encoder and a Simple Feature Pyramid.
+2. Builds subclass-level visual/text/hybrid tissue prototypes.
+3. Generates multi-scale CAMs from projected prototypes and feature maps.
+4. Merges subclass CAMs into parent tissue CAMs.
+5. Fuses CAM scales 2, 3, and 4.
+6. Applies class-wise CAM activation balance.
+7. Refines CAMs using one-step class-adaptive TAGD with an attention-boundary penalty.
+8. Converts refined CAMs into pseudo masks by foreground argmax.
 
-## Supported Datasets
+Core implementation:
 
-| Dataset | Classes | Description |
-|---------|---------|-------------|
-| **BCSS** | TUM, STR, LYM, NEC | Breast Cancer Semantic Segmentation |
-| **LUAD-HistoSeg** | TE, NEC, LYM, TAS | Lung Adenocarcinoma Histopathological Segmentation |
+- `src/models/network.py`: UNI encoder, FPN, visual/text/hybrid prototypes, multi-scale CAM generation.
+- `src/utils/cam_refine.py`: activation balance and AB-TAGD refinement.
+- `src/engine/wsss.py`: pseudo-mask generation.
+- `src/utils/evaluate.py`: validation/test evaluation with the same CAM pipeline.
+- `configs/experiments/bcss_fixed_0p6_feature_region_abdiv_beta2.yaml`: full method config.
 
-## Project Structure
+## Repository Layout
 
-```
+```text
 WSSS_2026_RESEARCH/
 ├── configs/
-│   ├── default.yaml              # Stage 1 config (BCSS)
-│   └── luad.yaml                 # Stage 1 config (LUAD)
-├── src/                           # Stage 1 source code
-│   ├── models/                    # UNI encoder, FPN, VQ, ClsNetwork
-│   ├── datasets/                  # Dataset loaders
-│   ├── losses/                    # InfoNCE contrastive losses
-│   └── utils/                     # Evaluation, FG/BG features, etc.
-├── scripts/
-│   ├── train.py                   # Stage 1: WSSS training
-│   ├── inference.py               # Stage 2: CAM → pseudo labels
-│   └── visualize.py               # Framework visualization
-├── train_seg/                     # Stage 3: Segmentation training
-│   ├── config.py                  # Seg training config (BCSS + LUAD)
-│   ├── model.py                   # SegFormer / Phikon / CTransPath
-│   ├── dataset.py                 # Train/Val datasets
-│   ├── trainer.py                 # Training loop + self-training
-│   └── train_seg.py               # Entry point
+│   ├── default.yaml
+│   ├── luad.yaml
+│   └── experiments/
+│       └── bcss_fixed_0p6_feature_region_abdiv_beta2.yaml
 ├── data/
-│   ├── BCSS-WSSS/                 # BCSS dataset
-│   │   ├── training/              # Training images (*.png)
-│   │   ├── val/{img,mask}/        # Validation
-│   │   └── test/{img,mask}/       # Test
-│   ├── LUAD-HistoSeg/             # LUAD dataset
-│   │   ├── training/              # Training images (*.png)
-│   │   ├── val/{img,mask}/        # Validation
-│   │   └── test/{img,mask}/       # Test
-│   └── prototypes/                # Pre-extracted visual prototypes
-│       ├── bcss_label_fea_pro_3333.pkl
-│       └── luad_label_fea_proto_3333.pkl
-├── predictions/                   # BCSS pseudo labels (Stage 2 output)
-├── predictions_luad/              # LUAD pseudo labels (Stage 2 output)
-├── checkpoints/                   # Saved models
-│   ├── <timestamp>/best_cam.pth   # BCSS Stage 1
-│   ├── luad/<timestamp>/best_cam.pth  # LUAD Stage 1
-│   ├── seg_bcss/                  # BCSS Stage 3
-│   └── seg_luad/                  # LUAD Stage 3
-└── venv/                          # Python virtual environment
+│   ├── BCSS-WSSS/
+│   ├── LUAD-HistoSeg/
+│   └── prototypes/
+├── paper/
+│   ├── method_abtagd_miccai.tex
+│   └── method_abtagd_miccai.md
+├── scripts/
+│   ├── train.py
+│   ├── inference.py
+│   ├── visualize.py
+│   └── run_wsss_paper_ablation.py
+├── src/
+│   ├── datasets/
+│   ├── engine/
+│   ├── losses/
+│   ├── models/
+│   └── utils/
+├── train_log/
+│   └── wsss_paper_ablation_20260508_065932/
+└── train_seg/
 ```
 
-## Installation
+## Environment
 
 ```bash
-git clone https://github.com/wterrr/WSSS.git
-cd WSSS
 python -m venv venv
 source venv/bin/activate
 pip install -r requirements.txt
 ```
 
-> See [QUICKSTART.md](QUICKSTART.md) for detailed installation including troubleshooting.
+The main WSSS code expects:
 
----
+- BCSS data under `data/BCSS-WSSS/`.
+- Visual prototype bank under `data/prototypes/bcss_label_fea_pro_3333.pkl`.
+- A valid Hugging Face token in the config for loading the UNI encoder if required by the local environment.
 
-## Full Pipeline — BCSS (Breast Cancer)
-
-### Stage 1: WSSS Training
-
-```bash
-python scripts/train.py --config configs/default.yaml --gpu 0
-```
-
-**Key config** (`configs/default.yaml`):
-```yaml
-model:
-  fpn_out_dims: [128, 320, 512]  # 3-scale FPN (P2, P3, P4)
-  use_lora: false
-
-train:
-  epoch: 8
-  samples_per_gpu: 4
-  accum_steps: 4
-  l2: 0.1    # Scale 2 (28x28) loss weight
-  l3: 1.0    # Scale 3 (14x14) loss weight
-  l4: 1.0    # Scale 4 (7x7)  loss weight
-  use_vq: true
-  use_text_proto: true
-```
-
-**Output:** `checkpoints/<timestamp>/best_cam.pth`
-
-### Stage 2: Pseudo Label Generation
+## Run Full AB-TAGD on BCSS
 
 ```bash
-# Generate pseudo labels for training set (used as supervision for Stage 3)
-python scripts/inference.py \
-    --config configs/default.yaml \
-    --checkpoint checkpoints/<timestamp>/best_cam.pth \
-    --split train --gpu 0
-
-# Generate for test set (evaluation)
-python scripts/inference.py \
-    --config configs/default.yaml \
-    --checkpoint checkpoints/<timestamp>/best_cam.pth \
-    --split test --gpu 0
+venv/bin/python scripts/train.py \
+  --config configs/experiments/bcss_fixed_0p6_feature_region_abdiv_beta2.yaml \
+  --gpu 0 \
+  --seed 42 \
+  --epoch 8
 ```
 
-**Output:** `predictions/*.png`
+The script trains, evaluates on validation/test, reloads the best checkpoint, and generates training pseudo masks.
 
-### Stage 3: Segmentation Training
+Expected outputs are created under the paths specified in the config:
+
+```text
+train_log/bcss_fixed_0p6_feature_region_abdiv_beta2/
+├── checkpoints/<timestamp>_seed42/best_cam.pth
+└── predictions/*.png
+```
+
+## Run Paper Ablations
 
 ```bash
-python train_seg/train_seg.py --dataset bcss
+venv/bin/python scripts/run_wsss_paper_ablation.py \
+  --gpu 0 \
+  --seeds 42 3407 2026 \
+  --epoch 8 \
+  --tables 1 2 3
 ```
 
-**Key config** (embedded in `train_seg/config.py`):
-```yaml
-model:
-  type: phikon              # or: segformer, ctranspath
-  backbone: owkin/phikon
-  use_lora: true
-  deep_supervision: true
+The ablation runner is continue-on-error: unsupported rows are logged as skipped instead of stopping the full run.
 
-dataset:
-  train_root: data/BCSS-WSSS/training
-  pseudo_dir: predictions   # pseudo labels from Stage 2
-  class_names: [TUM, STR, LYM, NEC]
+Current paper ablation results are stored in:
 
-train:
-  epochs: 80
-  batch_size: 16
-  crop_size: 224
-  lr: 0.00006
-  ce_weight: 1.0
-  dice_weight: 0.5
-  use_noise_robust_loss: true
+```text
+train_log/wsss_paper_ablation_20260508_065932/
+├── configs/
+├── logs/
+├── summary_raw.tsv
+├── summary_mean_std.txt
+└── work/*/checkpoints/*/best_cam.pth
 ```
 
-**Output:** `checkpoints/seg_bcss/best_seg.pth`
+Pseudo-mask prediction folders inside the ablation work directory were removed to save disk space; they can be regenerated from the saved checkpoints if needed.
 
----
+## Main Ablation Tables
 
-## Full Pipeline — LUAD-HistoSeg (Lung Adenocarcinoma)
+The current ablation runner creates three groups:
 
-### Stage 1: WSSS Training
+- Table 1: visual baseline, text prototype, hybrid prototype, and full AB-TAGD.
+- Table 2: prototype/source sensitivity for the full pipeline.
+- Table 3: AB-TAGD hyperparameter and design sensitivity.
 
-```bash
-python scripts/train.py --config configs/luad.yaml --gpu 0
-```
+The primary paper number should be taken from `t1_full_abtagd` in `summary_mean_std.txt`. Table 3 is a robustness/sensitivity table; small differences across beta or activation-balance variants are within run-to-run variance and should not be framed as separate improvements.
 
-**Key config** (`configs/luad.yaml`):
-```yaml
-model:
-  fpn_out_dims: [128, 320, 512]
-  label_feature_path: data/prototypes/luad_label_fea_proto_3333.pkl
+## Optional LUAD Config
 
-dataset:
-  name: luad
-  train_root: data/LUAD-HistoSeg/training
-  cls_num_classes: 4  # TE, NEC, LYM, TAS
+`configs/luad.yaml` is kept for LUAD-style experiments, but the cleaned paper state is centered on BCSS WSSS. If LUAD is used, verify output paths first because old root `checkpoints/` and `predictions_luad/` folders were removed during cleanup.
 
-train:
-  epoch: 15
-  use_vq: true
-  use_text_proto: true
-```
+## Optional Downstream Segmentation
 
-**Output:** `checkpoints/luad/<timestamp>/best_cam.pth`
+`train_seg/` contains downstream pseudo-label segmentation experiments. This stage is not the main paper contribution and is not required to reproduce the WSSS ablation tables.
 
-### Stage 2: Pseudo Label Generation
+## Notes
 
-```bash
-# Generate pseudo labels for training set
-python scripts/inference.py \
-    --config configs/luad.yaml \
-    --checkpoint checkpoints/luad/<timestamp>/best_cam.pth \
-    --split train --gpu 0
-
-# Generate for test set
-python scripts/inference.py \
-    --config configs/luad.yaml \
-    --checkpoint checkpoints/luad/<timestamp>/best_cam.pth \
-    --split test --gpu 0
-```
-
-**Output:** `predictions_luad/*.png`
-
-### Stage 3: Segmentation Training
-
-```bash
-python train_seg/train_seg.py --dataset luad
-```
-
-**Key config** (embedded in `train_seg/config.py`):
-```yaml
-dataset:
-  train_root: data/LUAD-HistoSeg/training
-  pseudo_dir: predictions_luad
-  class_names: [TE, NEC, LYM, TAS]
-
-train:
-  epochs: 80
-  dice_weight: 1.0
-  patience: 7
-```
-
-**Output:** `checkpoints/seg_luad/best_seg.pth`
-
----
-
-## Quick Reference
-
-| Action | BCSS | LUAD |
-|--------|------|------|
-| **Stage 1** | `python scripts/train.py --config configs/default.yaml` | `python scripts/train.py --config configs/luad.yaml` |
-| **Stage 2** | `python scripts/inference.py --config configs/default.yaml --checkpoint <path> --split train` | `python scripts/inference.py --config configs/luad.yaml --checkpoint <path> --split train` |
-| **Stage 3** | `python train_seg/train_seg.py --dataset bcss` | `python train_seg/train_seg.py --dataset luad` |
-
-## Architecture
-
-```
-Stage 1: WSSS CAM Model (3-scale)
-===================================
-Input Image (224×224)
-    ↓
-UNI ViT-L/16 (frozen + LoRA)
-  → Block 11, Block 17, Block 23
-    ↓
-Simple Feature Pyramid (SFP)
-  → P2(28×28, 128ch) → P3(14×14, 320ch) → P4(7×7, 512ch)
-    ↓
-VQ Codebook Quantization (P2-P4)
-    ↓
-Hybrid Text-Visual Prototypes
-    ↓
-Multi-Scale CAMs → Fuse: 0.3×CAM2 + 0.3×CAM3 + 0.4×CAM4
-    ↓
-Pseudo Segmentation Mask
-
-Stage 3: Segmentation Model
-============================
-Input Image (224×224)
-    ↓
-Phikon ViT-B / SegFormer / CTransPath (frozen + LoRA)
-    ↓
-FPN Decoder (multi-scale feature fusion)
-    ↓
-Segmentation Output (4 classes)
-```
-
-## Backbone Options (Stage 3)
-
-Edit `train_seg/config.py` or pass `--dataset` flag:
-
-| Backbone | Type | Description | VRAM |
-|----------|------|-------------|------|
-| **Phikon** (default) | `phikon` | Pathology-pretrained ViT-B (Owkin) | ~8GB |
-| **SegFormer** | `segformer` | MIT-B3 with built-in decoder | ~10GB |
-| **CTransPath** | `ctranspath` | Pathology-pretrained Swin-T | ~6GB |
-
-## GPU Requirements
-
-| Stage | Model | Min VRAM | Recommended |
-|-------|-------|----------|-------------|
-| Stage 1 | UNI ViT-L + VQ | 10GB | 12GB+ |
-| Stage 3 (Phikon) | ViT-B + decoder | 8GB | 12GB |
-| Stage 3 (SegFormer) | MIT-B3 | 10GB | 12GB |
-| Stage 3 (CTransPath) | Swin-T | 6GB | 8GB+ |
-
-## License
-
-MIT License — see [LICENSE](LICENSE) for details.
-
-## Acknowledgments
-
-- **UNI** — Universal pathology foundation model (MahmoodLab)
-- **Phikon** — Pathology ViT-B (Owkin)
-- **CONCH** — Histopathology contrastive learning
-- **BCSS** — Breast Cancer Semantic Segmentation dataset
-- **LUAD-HistoSeg** — Lung Adenocarcinoma Histopathological Segmentation dataset
+- The main WSSS method uses no CRF, no TTA, and no SAM.
+- The full method uses frozen UNI dense features and CONCH/text-guided hybrid prototypes.
+- AB-TAGD is implemented as a one-step graph refinement, not iterative graph smoothing.

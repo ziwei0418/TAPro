@@ -13,7 +13,7 @@ except ImportError:
 from medclip import MedCLIPModel, MedCLIPVisionModelViT, MedCLIPProcessor
 
 
-# BCSS text prompts — 3 per class to match k_list=[3,3,3,3]
+# BCSS single prompts — 3 per class to match k_list=[3,3,3,3]
 BCSS_TEXT_PROMPTS = [
     # TUM (3 subclasses)
     "dense cluster of tumor epithelial cells in breast tissue",
@@ -33,7 +33,7 @@ BCSS_TEXT_PROMPTS = [
     "necrotic region with hemorrhagic extravasation",
 ]
 
-# LUAD text prompts — 3 per class: TE, NEC, LYM, TAS
+# LUAD single prompts — 3 per class: TE, NEC, LYM, TAS
 LUAD_TEXT_PROMPTS = [
     # TE (3 subclasses)
     "dense cluster of tumor epithelial cells in lung adenocarcinoma",
@@ -53,22 +53,87 @@ LUAD_TEXT_PROMPTS = [
     "stromal tissue supporting tumor epithelial growth in lung",
 ]
 
+# BCSS class-associated background prompts — 1 per parent class
+BCSS_BACKGROUND_PROMPTS = [
+    # TUM background
+    "stromal and inflammatory tissue surrounding tumor nests in breast histology",
+    # STR background
+    "adjacent tumor epithelium and inflammatory infiltrates within stromal breast tissue",
+    # LYM background
+    "surrounding tumor and stromal tissue around lymphocytic aggregates in breast histology",
+    # NEC background
+    "adjacent viable tumor and stromal tissue bordering necrotic breast regions",
+]
+
+# LUAD class-associated background prompts — 1 per parent class
+LUAD_BACKGROUND_PROMPTS = [
+    # TE background
+    "surrounding stroma and inflammatory tissue around tumor epithelium in lung adenocarcinoma",
+    # NEC background
+    "adjacent viable tumor and stromal tissue surrounding necrotic lung regions",
+    # LYM background
+    "surrounding tumor epithelium and stromal tissue around lymphocytic infiltrates in lung tissue",
+    # TAS background
+    "adjacent tumor epithelium and inflammatory regions within tumor-associated stroma",
+]
+
 # Backward compat alias
 TISSUE_TEXT_PROMPTS = BCSS_TEXT_PROMPTS
 
 
-def get_text_prompts(dataset_name="bcss"):
-    """Get text prompts for the given dataset."""
+def _repeat_class_names(class_names, repeats=3):
+    prompts = []
+    for class_name in class_names:
+        prompts.extend([class_name] * repeats)
+    return prompts
+
+
+def get_text_prompts(dataset_name="bcss", prompt_mode="pathology"):
+    """Get text prompts for the given dataset and prompt mode."""
+    prompt_mode = prompt_mode.lower()
+
     if dataset_name == "luad":
+        if prompt_mode == "class_name":
+            return _repeat_class_names(["tumor epithelium", "necrosis", "lymphocyte", "tumor-associated stroma"])
         return LUAD_TEXT_PROMPTS
+
+    if prompt_mode == "class_name":
+        return _repeat_class_names(["tumor", "stroma", "lymphocyte", "necrosis"])
     return BCSS_TEXT_PROMPTS
 
 
+def get_background_prompts(dataset_name="bcss", prompt_mode="pathology"):
+    """Get class-associated background prompts, one per parent class."""
+    prompt_mode = prompt_mode.lower()
+
+    if dataset_name == "luad":
+        if prompt_mode == "class_name":
+            return [
+                "background around tumor epithelium",
+                "background around necrosis",
+                "background around lymphocyte regions",
+                "background around tumor-associated stroma",
+            ]
+        return LUAD_BACKGROUND_PROMPTS
+
+    if prompt_mode == "class_name":
+        return [
+            "background around tumor",
+            "background around stroma",
+            "background around lymphocyte regions",
+            "background around necrosis",
+        ]
+    return BCSS_BACKGROUND_PROMPTS
+
+
 @torch.no_grad()
-def encode_text_prompts(prompts):
+def encode_text_prompts(prompts, encoder_mode="auto"):
     """Encode text prompts using CONCH text encoder → [N, 512] frozen embeddings.
     Falls back to MedCLIP if CONCH is not available."""
-    if CONCH_AVAILABLE:
+    encoder_mode = encoder_mode.lower()
+    use_conch = encoder_mode in {"auto", "conch"} and CONCH_AVAILABLE
+
+    if use_conch:
         print("  Using CONCH text encoder (histopathology-specialized)")
         conch_model, _ = create_model_from_pretrained(
             "conch_ViT-B-16", "hf_hub:MahmoodLab/conch"
@@ -97,6 +162,8 @@ def encode_text_prompts(prompts):
         return text_features.float().cpu()
     else:
         # Fallback to MedCLIP
+        if encoder_mode == "conch" and not CONCH_AVAILABLE:
+            print("  Requested CONCH text encoder but CONCH is unavailable. Falling back to MedCLIP.")
         print("  Falling back to MedCLIP text encoder")
         processor = MedCLIPProcessor()
         clip_model = MedCLIPModel(vision_cls=MedCLIPVisionModelViT)

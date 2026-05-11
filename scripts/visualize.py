@@ -338,7 +338,9 @@ def main():
         vq_commitment_weight=cfg.train.vq_commitment_weight,
         vq_cam_weight=cfg.train.vq_cam_weight,
         use_multires_consistency=cfg.train.use_multires_consistency,
-        use_text_proto=getattr(cfg.train, 'use_text_proto', False)
+        use_text_proto=getattr(cfg.train, 'use_text_proto', False),
+        use_hybrid_alpha=getattr(cfg.train, 'use_hybrid_alpha', False),
+        dataset_name=cfg.dataset.name,
     )
     
     checkpoint = torch.load(args.checkpoint, map_location=device, weights_only=False)

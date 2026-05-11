@@ -26,22 +26,27 @@ def fix_double_ext(directory):
             os.rename(f, new_name)
 
 
-def compute_class_weights(pseudo_dir, num_classes=5, max_samples=1000):
-    """Compute median-frequency balanced class weights from pseudo labels."""
+def compute_class_weights(pseudo_dir, num_classes=5, max_samples=1000,
+                          ignore_index=255, class_names=None):
+    """Compute median-frequency balanced class weights from valid pseudo labels."""
     counts = np.zeros(num_classes, dtype=np.float64)
     paths = glob.glob(os.path.join(pseudo_dir, '*.png'))[:max_samples]
     for p in paths:
         m = np.array(Image.open(p))
         if m.ndim == 3:
             m = m[:, :, 0]
-        m = np.clip(m, 0, num_classes - 1)
+        valid = (m != ignore_index) & (m >= 0) & (m < num_classes)
         for c in range(num_classes):
-            counts[c] += (m == c).sum()
+            counts[c] += ((m == c) & valid).sum()
+    if counts.sum() <= 0:
+        print("  Class weights: no valid pseudo labels found, using uniform weights")
+        return torch.ones(num_classes, dtype=torch.float32)
     freq = counts / (counts.sum() + 1e-8)
     median = np.median(freq[freq > 1e-6])
     weights = np.where(freq > 1e-6, median / (freq + 1e-8), 1.0)
     weights = np.clip(weights, 0.5, 4.0)
-    print(f"  Class weights: { {n: f'{w:.2f}' for n, w in zip(CLASS_NAMES, weights)} }")
+    names = list(class_names) if class_names is not None else CLASS_NAMES[:num_classes]
+    print(f"  Class weights: { {n: f'{w:.2f}' for n, w in zip(names, weights)} }")
     return torch.tensor(weights, dtype=torch.float32)
 
 

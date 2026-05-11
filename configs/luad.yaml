@@ -5,7 +5,7 @@
 
 model:
   hf_token: "REMOVED_HF_TOKEN"
-  fpn_out_dims: [128, 320, 512]
+  fpn_out_dims: [64, 128, 320, 512]
   label_feature_path: "data/prototypes/luad_label_fea_proto_3333.pkl"
   n_ratio: 0.5
   use_lora: false
@@ -28,6 +28,7 @@ train:
   accum_steps: 4
   epoch: 15
 
+  l1: 0.0
   l2: 0.1
   l3: 1.0
   l4: 1.0
@@ -52,10 +53,8 @@ train:
   vq_commitment_weight: 0.15
   vq_cam_weight: 0.3
   vq_loss_weight: 0.1
-  sem_reg_weight: 0.03
 
-  use_multires_consistency: true
-  multires_weight: 0.05
+
 
   use_binary_hash: true
   hash_dim: 128

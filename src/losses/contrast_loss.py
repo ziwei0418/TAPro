@@ -1,12 +1,7 @@
-"""
-Contrastive loss functions for WSSS
-"""
 import torch
 import torch.nn as nn
-import torch.nn.functional as F
 
 class InfoNCELossFG(nn.Module):
-    """InfoNCE loss for foreground features"""
     def __init__(self, temperature=1.0):
         super().__init__()
         self.temperature = temperature
@@ -38,7 +33,6 @@ class InfoNCELossFG(nn.Module):
 
 
 class InfoNCELossBG(nn.Module):
-    """InfoNCE loss for background features"""
     def __init__(self, temperature=1.0):
         super().__init__()
         self.temperature = temperature
@@ -68,20 +62,3 @@ class InfoNCELossBG(nn.Module):
         loss = -torch.log(positive_sims / negative_sims)
 
         return loss
-
-
-class MultiResConsistencyLoss(nn.Module):
-    """Cross-scale CAM consistency via soft KL divergence"""
-    def __init__(self, tau=4.0):
-        super().__init__()
-        self.tau = tau
-
-    def forward(self, cam_fine, cam_coarse):
-        # Downsample fine to match coarse spatial size
-        cam_fine_down = F.adaptive_avg_pool2d(cam_fine, cam_coarse.shape[2:])
-        # Treat CAMs as spatial distributions per class (soft KL)
-        p = F.softmax(cam_fine_down.flatten(2) / self.tau, dim=-1).clamp(min=1e-8)
-        q = F.softmax(cam_coarse.flatten(2) / self.tau, dim=-1).clamp(min=1e-8)
-        # KL(p || q) — p=fine guides q=coarse
-        kl_loss = F.kl_div(q.log(), p, reduction='batchmean')
-        return kl_loss

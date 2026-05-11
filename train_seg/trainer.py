@@ -136,7 +136,24 @@ def train_seg(cfg):
         lr=cfg.train.lr,
         backbone_scale=cfg.train.backbone_lr_scale,
     )
-    optimizer = torch.optim.AdamW(param_groups, weight_decay=cfg.train.weight_decay)
+    opt_name = str(cfg.train.get('optimizer', 'adamw')).lower()
+    if opt_name == 'ano':
+        from anon import Ano
+        optimizer = Ano(
+            param_groups,
+            lr=cfg.train.lr,
+            betas=(cfg.train.get('ano_beta1', 0.92), cfg.train.get('ano_beta2', 0.99)),
+            weight_decay=cfg.train.weight_decay,
+            logarithmic_schedule=cfg.train.get('ano_logarithmic_schedule', False),
+        )
+        print(
+            "Optimizer: Ano "
+            f"(betas={cfg.train.get('ano_beta1', 0.92):.3f},{cfg.train.get('ano_beta2', 0.99):.3f}, "
+            f"log_schedule={cfg.train.get('ano_logarithmic_schedule', False)})"
+        )
+    else:
+        optimizer = torch.optim.AdamW(param_groups, weight_decay=cfg.train.weight_decay)
+        print("Optimizer: AdamW")
 
     accum = cfg.train.accum_steps
     actual_steps_per_epoch = max(1, len(train_loader) // accum)
