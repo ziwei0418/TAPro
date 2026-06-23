@@ -1,77 +1,82 @@
-# AB-TAGD for Weakly Supervised Histopathology Segmentation
+# Anonymous WSSS Histopathology Segmentation Code
 
-This repository contains the WSSS code used for the BCSS paper experiments. The main method is **AB-TAGD**: Activation-Balanced Attention-Boundary Tissue-Adaptive Graph Diffusion for pseudo-mask generation from image-level labels.
+This repository contains code for weakly supervised semantic segmentation (WSSS) experiments on histopathology images. The pipeline learns class activation maps (CAMs) from image-level tissue labels and generates pseudo masks without dense supervision during CAM training.
 
-The paper contribution is the WSSS pseudo-mask generation pipeline, not the optional downstream segmentation trainer.
+The method combines frozen pathology foundation features, hybrid text-visual tissue prototypes, activation-balanced CAM fusion, and Boundary-Aware Graph Diffusion (BAGD) for pseudo-mask refinement.
 
-## Method Summary
+## Method Overview
 
-Given an H&E patch with only image-level tissue labels, the pipeline:
+Given an H&E patch with image-level tissue labels, the pipeline:
 
-1. Extracts frozen dense features using a UNI pathology encoder and a Simple Feature Pyramid.
-2. Builds subclass-level visual/text/hybrid tissue prototypes.
-3. Generates multi-scale CAMs from projected prototypes and feature maps.
+1. Extracts frozen dense visual features from a pathology foundation encoder.
+2. Builds visual prototype banks and pathology text prototypes.
+3. Blends text and visual prototypes to produce subclass-aware CAMs.
 4. Merges subclass CAMs into parent tissue CAMs.
-5. Fuses CAM scales 2, 3, and 4.
-6. Applies class-wise CAM activation balance.
-7. Refines CAMs using one-step class-adaptive TAGD with an attention-boundary penalty.
-8. Converts refined CAMs into pseudo masks by foreground argmax.
+5. Fuses CAMs across scales and applies activation balancing.
+6. Refines balanced CAMs with BAGD using feature affinity and attention-boundary cues.
+7. Converts refined CAMs into pseudo masks by foreground argmax.
 
-Core implementation:
-
-- `src/models/network.py`: UNI encoder, FPN, visual/text/hybrid prototypes, multi-scale CAM generation.
-- `src/utils/cam_refine.py`: activation balance and AB-TAGD refinement.
-- `src/engine/wsss.py`: pseudo-mask generation.
-- `src/utils/evaluate.py`: validation/test evaluation with the same CAM pipeline.
-- `configs/experiments/bcss_fixed_0p6_feature_region_abdiv_beta2.yaml`: full method config.
+The pseudo-mask generation pipeline does not use dense CRF, test-time augmentation, SAM, or an external segmentation model.
 
 ## Repository Layout
 
 ```text
-WSSS_2026_RESEARCH/
-├── configs/
-│   ├── default.yaml
-│   ├── luad.yaml
-│   └── experiments/
-│       └── bcss_fixed_0p6_feature_region_abdiv_beta2.yaml
-├── data/
-│   ├── BCSS-WSSS/
-│   ├── LUAD-HistoSeg/
-│   └── prototypes/
-├── paper/
-│   ├── method_abtagd_miccai.tex
-│   └── method_abtagd_miccai.md
-├── scripts/
-│   ├── train.py
-│   ├── inference.py
-│   ├── visualize.py
-│   └── run_wsss_paper_ablation.py
-├── src/
-│   ├── datasets/
-│   ├── engine/
-│   ├── losses/
-│   ├── models/
-│   └── utils/
-├── train_log/
-│   └── wsss_paper_ablation_20260508_065932/
-└── train_seg/
+configs/                 Experiment configs
+scripts/                 Training, evaluation, inference, and visualization scripts
+src/                     WSSS model, losses, datasets, and CAM utilities
+train_seg/               Optional downstream segmentation model code
+paper/                   Local manuscript notes and method drafts
+requirements.txt         Python dependencies
+install.sh               Environment installation helper
+```
+
+Important implementation files:
+
+```text
+src/models/network.py        Foundation encoder, feature pyramid, prototypes, CAM heads
+src/utils/cam_refine.py      Activation balance and BAGD refinement
+src/engine/wsss.py           Pseudo-mask generation pipeline
+src/utils/evaluate.py        CAM-mask evaluation utilities
+scripts/train.py             WSSS training entry point
+scripts/run_wsss_paper_ablation.py  Ablation runner
+scripts/eval_bcss_seg_no_tta.py     BCSS downstream segmentation evaluation
+scripts/eval_luad_seg_no_tta.py     LUAD downstream segmentation evaluation
+scripts/make_bcss_sota_qual_figure.py  Qualitative SOTA comparison figure
 ```
 
 ## Environment
 
+Create and activate a virtual environment:
+
 ```bash
-python -m venv venv
+python3 -m venv venv
 source venv/bin/activate
-pip install -r requirements.txt
+python -m pip install --upgrade pip
+python -m pip install -r requirements.txt
 ```
 
-The main WSSS code expects:
+CONCH is recommended for pathology text prototypes. If it is not installed by the environment setup, install it separately:
 
-- BCSS data under `data/BCSS-WSSS/`.
-- Visual prototype bank under `data/prototypes/bcss_label_fea_pro_3333.pkl`.
-- A valid Hugging Face token in the config for loading the UNI encoder if required by the local environment.
+```bash
+python -m pip install "git+https://github.com/Mahmoodlab/CONCH.git"
+```
 
-## Run Full AB-TAGD on BCSS
+## Data Layout
+
+Place datasets and prototype files under `data/`:
+
+```text
+data/BCSS-WSSS/{training,val,test}
+data/LUAD-HistoSeg/{train,val,test}
+data/prototypes/bcss_label_fea_pro_3333.pkl
+data/prototypes/luad_label_fea_proto_3333.pkl
+```
+
+Large datasets, checkpoints, predictions, and qualitative figures are intentionally ignored by git.
+
+## WSSS Training
+
+BCSS full configuration:
 
 ```bash
 venv/bin/python scripts/train.py \
@@ -81,17 +86,7 @@ venv/bin/python scripts/train.py \
   --epoch 8
 ```
 
-The script trains, evaluates on validation/test, reloads the best checkpoint, and generates training pseudo masks.
-
-Expected outputs are created under the paths specified in the config:
-
-```text
-train_log/bcss_fixed_0p6_feature_region_abdiv_beta2/
-├── checkpoints/<timestamp>_seed42/best_cam.pth
-└── predictions/*.png
-```
-
-## Run Paper Ablations
+Run the paper ablation groups:
 
 ```bash
 venv/bin/python scripts/run_wsss_paper_ablation.py \
@@ -101,41 +96,51 @@ venv/bin/python scripts/run_wsss_paper_ablation.py \
   --tables 1 2 3
 ```
 
-The ablation runner is continue-on-error: unsupported rows are logged as skipped instead of stopping the full run.
+## Downstream Segmentation Evaluation
 
-Current paper ablation results are stored in:
+The downstream segmentation stage is optional and is used to evaluate pseudo masks with a segmentation model checkpoint.
 
-```text
-train_log/wsss_paper_ablation_20260508_065932/
-├── configs/
-├── logs/
-├── summary_raw.tsv
-├── summary_mean_std.txt
-└── work/*/checkpoints/*/best_cam.pth
+BCSS no-TTA evaluation:
+
+```bash
+venv/bin/python scripts/eval_bcss_seg_no_tta.py \
+  --checkpoint checkpoints/seg_bcss/best_ema.pth \
+  --out-dir predictions_bcss_seg_test_no_tta
 ```
 
-Pseudo-mask prediction folders inside the ablation work directory were removed to save disk space; they can be regenerated from the saved checkpoints if needed.
+LUAD no-TTA evaluation:
 
-## Main Ablation Tables
+```bash
+venv/bin/python scripts/eval_luad_seg_no_tta.py \
+  --checkpoint checkpoints/seg_luad/best_ema.pth \
+  --out-dir predictions_luad_seg_test_no_tta
+```
 
-The current ablation runner creates three groups:
+Raw prediction masks are saved as class-index PNG files. They may look black in an image viewer because pixel values are class IDs. Use the provided visualization scripts or colorized output folders for inspection.
 
-- Table 1: visual baseline, text prototype, hybrid prototype, and full AB-TAGD.
-- Table 2: prototype/source sensitivity for the full pipeline.
-- Table 3: AB-TAGD hyperparameter and design sensitivity.
+## Qualitative SOTA Figure
 
-The primary paper number should be taken from `t1_full_abtagd` in `summary_mean_std.txt`. Table 3 is a robustness/sensitivity table; small differences across beta or activation-balance variants are within run-to-run variance and should not be framed as separate improvements.
+To build a BCSS qualitative comparison figure, place SOTA mask archives in:
 
-## Optional LUAD Config
+```text
+data/sota_masks/bcss/AFA.zip
+data/sota_masks/bcss/CAM.zip
+data/sota_masks/bcss/GRAD_CAM.zip
+data/sota_masks/bcss/PBIP.zip
+data/sota_masks/bcss/TPRO.zip
+```
 
-`configs/luad.yaml` is kept for LUAD-style experiments, but the cleaned paper state is centered on BCSS WSSS. If LUAD is used, verify output paths first because old root `checkpoints/` and `predictions_luad/` folders were removed during cleanup.
+Then run:
 
-## Optional Downstream Segmentation
+```bash
+venv/bin/python scripts/make_bcss_sota_qual_figure.py \
+  --rows 2 \
+  --top-k 30 \
+  --min-margin 0.0
+```
 
-`train_seg/` contains downstream pseudo-label segmentation experiments. This stage is not the main paper contribution and is not required to reproduce the WSSS ablation tables.
+The script selects test images whose ground-truth mask contains exactly three foreground classes and where the proposed method has higher per-image mIoU than every listed SOTA mask. Outputs are written to `qualitative_bcss_sota/`.
 
-## Notes
+## Anonymous Release Notes
 
-- The main WSSS method uses no CRF, no TTA, and no SAM.
-- The full method uses frozen UNI dense features and CONCH/text-guided hybrid prototypes.
-- AB-TAGD is implemented as a one-step graph refinement, not iterative graph smoothing.
+This repository is prepared for anonymous paper review. Public documentation should avoid personal names, institutional identifiers, local machine paths, private tokens, and private dataset links. Keep generated outputs and downloaded data outside git.

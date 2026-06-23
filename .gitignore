@@ -99,3 +99,11 @@ mlruns/
 
 # Cache
 .cache/
+
+# Generated evaluation outputs
+predictions_*/
+qualitative_*/
+
+# Local manuscript drafts not needed in anonymous code release
+paper/experiments.tex
+paper/method.tex
