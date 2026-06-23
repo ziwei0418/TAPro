@@ -1,52 +1,32 @@
-# Anonymous WSSS Histopathology Segmentation Code
+# WSSS Histopathology Segmentation
 
-This repository contains code for weakly supervised semantic segmentation (WSSS) experiments on histopathology images. The pipeline learns class activation maps (CAMs) from image-level tissue labels and generates pseudo masks without dense supervision during CAM training.
+This repository contains code for weakly supervised semantic segmentation (WSSS) on histopathology image patches. It supports CAM training from image-level labels, pseudo-mask generation, downstream segmentation evaluation, and qualitative visualization for paper figures.
 
-The method combines frozen pathology foundation features, hybrid text-visual tissue prototypes, activation-balanced CAM fusion, and Boundary-Aware Graph Diffusion (BAGD) for pseudo-mask refinement.
-
-## Method Overview
-
-Given an H&E patch with image-level tissue labels, the pipeline:
-
-1. Extracts frozen dense visual features from a pathology foundation encoder.
-2. Builds visual prototype banks and pathology text prototypes.
-3. Blends text and visual prototypes to produce subclass-aware CAMs.
-4. Merges subclass CAMs into parent tissue CAMs.
-5. Fuses CAMs across scales and applies activation balancing.
-6. Refines balanced CAMs with BAGD using feature affinity and attention-boundary cues.
-7. Converts refined CAMs into pseudo masks by foreground argmax.
-
-The pseudo-mask generation pipeline does not use dense CRF, test-time augmentation, SAM, or an external segmentation model.
-
-## Repository Layout
+## Project Structure
 
 ```text
-configs/                 Experiment configs
-scripts/                 Training, evaluation, inference, and visualization scripts
-src/                     WSSS model, losses, datasets, and CAM utilities
-train_seg/               Optional downstream segmentation model code
-paper/                   Local manuscript notes and method drafts
-requirements.txt         Python dependencies
-install.sh               Environment installation helper
+configs/          Experiment configuration files
+scripts/          Training, inference, evaluation, and visualization entry points
+src/              WSSS datasets, models, losses, and CAM refinement utilities
+train_seg/        Optional downstream segmentation training/evaluation code
+paper/            Local manuscript notes and LaTeX drafts
+requirements.txt  Python dependencies
+install.sh        Optional installation helper
 ```
 
-Important implementation files:
+Common entry points:
 
 ```text
-src/models/network.py        Foundation encoder, feature pyramid, prototypes, CAM heads
-src/utils/cam_refine.py      Activation balance and BAGD refinement
-src/engine/wsss.py           Pseudo-mask generation pipeline
-src/utils/evaluate.py        CAM-mask evaluation utilities
-scripts/train.py             WSSS training entry point
-scripts/run_wsss_paper_ablation.py  Ablation runner
-scripts/eval_bcss_seg_no_tta.py     BCSS downstream segmentation evaluation
-scripts/eval_luad_seg_no_tta.py     LUAD downstream segmentation evaluation
-scripts/make_bcss_sota_qual_figure.py  Qualitative SOTA comparison figure
+scripts/train.py                         Train the WSSS CAM model
+scripts/inference.py                     Generate pseudo masks from a CAM checkpoint
+scripts/run_wsss_paper_ablation.py       Run ablation groups
+scripts/eval_bcss_seg_no_tta.py          Evaluate BCSS segmentation checkpoint without TTA
+scripts/eval_luad_seg_no_tta.py          Evaluate LUAD segmentation checkpoint without TTA
+scripts/make_bcss_sota_qual_figure.py    Build qualitative BCSS comparison figures
+scripts/visualize.py                     Export framework/CAM visualizations
 ```
 
-## Environment
-
-Create and activate a virtual environment:
+## Environment Setup
 
 ```bash
 python3 -m venv venv
@@ -55,10 +35,16 @@ python -m pip install --upgrade pip
 python -m pip install -r requirements.txt
 ```
 
-CONCH is recommended for pathology text prototypes. If it is not installed by the environment setup, install it separately:
+Optional CONCH installation for pathology text prototypes:
 
 ```bash
 python -m pip install "git+https://github.com/Mahmoodlab/CONCH.git"
+```
+
+Quick import check:
+
+```bash
+venv/bin/python -c "from src.models.network import ClsNetwork; print('ok')"
 ```
 
 ## Data Layout
@@ -72,9 +58,9 @@ data/prototypes/bcss_label_fea_pro_3333.pkl
 data/prototypes/luad_label_fea_proto_3333.pkl
 ```
 
-Large datasets, checkpoints, predictions, and qualitative figures are intentionally ignored by git.
+Datasets, checkpoints, prediction folders, and generated figures are ignored by git.
 
-## WSSS Training
+## Train WSSS CAM Model
 
 BCSS full configuration:
 
@@ -86,7 +72,7 @@ venv/bin/python scripts/train.py \
   --epoch 8
 ```
 
-Run the paper ablation groups:
+Run ablation groups:
 
 ```bash
 venv/bin/python scripts/run_wsss_paper_ablation.py \
@@ -96,11 +82,21 @@ venv/bin/python scripts/run_wsss_paper_ablation.py \
   --tables 1 2 3
 ```
 
-## Downstream Segmentation Evaluation
+## Generate Pseudo Masks
 
-The downstream segmentation stage is optional and is used to evaluate pseudo masks with a segmentation model checkpoint.
+```bash
+venv/bin/python scripts/inference.py \
+  --config configs/experiments/bcss_fixed_0p6_feature_region_abdiv_beta2.yaml \
+  --checkpoint <path/to/best_cam.pth> \
+  --split test \
+  --gpu 0
+```
 
-BCSS no-TTA evaluation:
+The output directory is controlled by the config field `work_dir.pred_dir`.
+
+## Evaluate Downstream Segmentation
+
+BCSS:
 
 ```bash
 venv/bin/python scripts/eval_bcss_seg_no_tta.py \
@@ -108,7 +104,7 @@ venv/bin/python scripts/eval_bcss_seg_no_tta.py \
   --out-dir predictions_bcss_seg_test_no_tta
 ```
 
-LUAD no-TTA evaluation:
+LUAD:
 
 ```bash
 venv/bin/python scripts/eval_luad_seg_no_tta.py \
@@ -116,11 +112,11 @@ venv/bin/python scripts/eval_luad_seg_no_tta.py \
   --out-dir predictions_luad_seg_test_no_tta
 ```
 
-Raw prediction masks are saved as class-index PNG files. They may look black in an image viewer because pixel values are class IDs. Use the provided visualization scripts or colorized output folders for inspection.
+Raw prediction masks are class-index PNG files, so they can look black in normal image viewers. Colorized masks are written to `pred_masks_color/` when generated by the helper scripts.
 
-## Qualitative SOTA Figure
+## Build Qualitative Comparison Figures
 
-To build a BCSS qualitative comparison figure, place SOTA mask archives in:
+For BCSS SOTA comparison, place mask archives under:
 
 ```text
 data/sota_masks/bcss/AFA.zip
@@ -139,8 +135,18 @@ venv/bin/python scripts/make_bcss_sota_qual_figure.py \
   --min-margin 0.0
 ```
 
-The script selects test images whose ground-truth mask contains exactly three foreground classes and where the proposed method has higher per-image mIoU than every listed SOTA mask. Outputs are written to `qualitative_bcss_sota/`.
+Outputs are saved under `qualitative_bcss_sota/`.
 
-## Anonymous Release Notes
+## Visualization
 
-This repository is prepared for anonymous paper review. Public documentation should avoid personal names, institutional identifiers, local machine paths, private tokens, and private dataset links. Keep generated outputs and downloaded data outside git.
+```bash
+venv/bin/python scripts/visualize.py \
+  --config configs/experiments/bcss_fixed_0p6_feature_region_abdiv_beta2.yaml \
+  --checkpoint <path/to/best_cam.pth> \
+  --output_dir framework_figs \
+  --gpu 0
+```
+
+## Notes for Anonymous Release
+
+Do not commit private datasets, checkpoints, generated outputs, local machine paths, credentials, or author-identifying information.
