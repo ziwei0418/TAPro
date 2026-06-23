@@ -107,3 +107,8 @@ qualitative_*/
 # Local manuscript drafts not needed in anonymous code release
 paper/experiments.tex
 paper/method.tex
+paper/
+PAPER_METHOD_NOTES.md
+train_seg_uni.py
+scripts/run_wsss_paper_ablation.py
+scripts/make_bcss_sota_qual_figure.py
