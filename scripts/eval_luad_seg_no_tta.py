@@ -25,10 +25,10 @@ from train_seg.model import build_seg_model
 CLASS_NAMES = ["TE", "NEC", "LYM", "TAS"]
 PALETTE = np.array(
     [
-        [220, 20, 60],    # TE
-        [153, 0, 255],    # NEC
-        [30, 144, 255],   # LYM
-        [34, 139, 34],    # TAS
+        [205, 51, 51],    # TE
+        [0, 255, 0],      # NEC
+        [65, 105, 225],   # LYM
+        [255, 165, 0],    # TAS
         [255, 255, 255],  # ignored/background display
     ],
     dtype=np.uint8,
