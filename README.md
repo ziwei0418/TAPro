@@ -88,7 +88,3 @@ venv/bin/python scripts/visualize.py \
   --output_dir framework_figs \
   --gpu 0
 ```
-
-## Notes for Anonymous Release
-
-Only code needed to run the WSSS pipeline should be committed. Do not commit paper drafts, ablation notes, private datasets, checkpoints, generated outputs, local machine paths, credentials, or author-identifying information.
