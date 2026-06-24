@@ -1,4 +1,4 @@
-# WSSS Histopathology Segmentation
+# ProBAG: Prototype-Guided Boundary-Aware Graph Diffusion for Weakly Supervised Histopathology Segmentation
 
 This repository contains the core code for weakly supervised semantic segmentation (WSSS) on histopathology image patches. It supports CAM training from image-level labels and pseudo-mask generation for BCSS-WSSS and LUAD-HistoSeg style datasets.
 
@@ -88,3 +88,9 @@ venv/bin/python scripts/visualize.py \
   --output_dir framework_figs \
   --gpu 0
 ```
+
+## Acknowledgment
+
+This repository is built upon and adapted from the excellent [PBIP](https://github.com/QingchenTang/PBIP) implementation.
+
+We sincerely thank the authors for making their code publicly available and for their valuable contribution to weakly supervised semantic segmentation research.
