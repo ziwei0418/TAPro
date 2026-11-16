@@ -73,6 +73,10 @@ framework_figs/
 temp/
 tmp/
 
+# 实验临时日志
+train_log_text_anchor*.txt
+report_text_anchor.txt
+
 # Model weights (too large for git)
 *.safetensors
 *.bin

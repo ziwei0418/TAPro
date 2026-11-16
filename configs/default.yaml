@@ -11,9 +11,9 @@ model:
 
 dataset:
   name: "bcss"
-  train_root: "data/BCSS-WSSS/training"
-  val_root: "data/BCSS-WSSS"
-  test_root: "data/BCSS-WSSS"
+  train_root: r"E:\dataset\BCSS-WSSS\train"
+  val_root: r"E:\dataset\BCSS-WSSS"
+  test_root: r"E:\dataset\BCSS-WSSS"
   cls_num_classes: 4  # TUM, STR, LYM, NEC
   input_size: [224, 224]
 

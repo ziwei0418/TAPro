@@ -67,9 +67,13 @@ def main():
         hybrid_alpha_parent_values=getattr(cfg.train, 'hybrid_alpha_parent_values', None),
         use_bg_prompt_suppression=getattr(cfg.train, 'use_bg_prompt_suppression', False),
         bg_prompt_mode=getattr(cfg.train, 'bg_prompt_mode', 'pathology'),
+        use_text_anchored_mask=getattr(cfg.train, 'use_text_anchored_mask', False),
+        text_anchor_tau=getattr(cfg.train, 'text_anchor_tau', 0.1),
+        text_anchor_map_bias=getattr(cfg.train, 'text_anchor_map_bias', False),
+        text_anchor_sparsity_weight=getattr(cfg.train, 'text_anchor_sparsity_weight', 0.0),
     )
     
-    checkpoint = torch.load(args.checkpoint, map_location=device, weights_only=False)
+    checkpoint = torch.load(args.checkpoint, map_location="cpu", weights_only=False)
     model.load_state_dict(checkpoint["model"])
     model.to(device)
     print(f"✓ Model loaded from {args.checkpoint}")

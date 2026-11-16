@@ -1,0 +1,89 @@
+# ============================================================
+# BCSS — Text-Anchored Prototype (参考 ReSet 的文本锚定语义掩码)
+# 用「文本→视觉映射 + 文本×视觉联合门控 + 可学习阈值软掩码」替换
+# _build_hybrid_prototypes，掩蔽后的视觉原型作为类别原型。
+# ============================================================
+
+model:
+  hf_token: "REMOVED_HF_TOKEN"  # Replace with your HuggingFace token
+  fpn_out_dims: [64, 128, 320, 512]
+  label_feature_path: "data/prototypes/bcss_label_fea_pro_3333.pkl"
+  n_ratio: 0.5
+  use_lora: false  # Set to true for LoRA fine-tuning
+
+dataset:
+  name: "bcss"
+  train_root: "E:/dataset/BCSS-WSSS/train"
+  val_root: "E:/dataset/BCSS-WSSS"
+  test_root: "E:/dataset/BCSS-WSSS"
+  cls_num_classes: 4  # TUM, STR, LYM, NEC
+  input_size: [224, 224]
+
+work_dir:
+  ckpt_dir: "train_log/bcss_text_anchor/checkpoints"
+  pred_dir: "train_log/bcss_text_anchor/predictions"
+  train_log_dir: "train_log/bcss_text_anchor"
+
+train:
+  # Training parameters
+  samples_per_gpu: 4
+  accum_steps: 4
+  epoch: 8
+
+  # Multi-scale loss weights
+  l1: 0.0
+  l2: 0.1
+  l3: 1.0
+  l4: 1.0
+  l5: 0.05
+
+  # CAM generation
+  mask_adapter_alpha: 0.5
+  merge_train: "mean"
+  merge_test: "max"
+
+  # Augmentation and post-processing
+  use_tta: false
+  use_crf: false
+  crf_iter_max: 10
+  crf_pos_w: 3
+  crf_pos_xy_std: 1
+  crf_bi_w: 4
+  crf_bi_xy_std: 67
+  crf_bi_rgb_std: 3
+
+  # === Text-Anchored Prototype Path ===
+  use_text_proto: true  # 使用文本原型
+  use_hybrid_proto_blend: false          # 被文本锚定掩码替换
+  use_bg_prompt_suppression: false
+  bg_prompt_mode: "pathology"
+  bg_prompt_weight: 0.03
+  bg_prompt_align_weight: 1.0
+  bg_prompt_repel_weight: 0.5
+  bg_prompt_stability_weight: 0.1
+  bg_prompt_temp: 0.07
+  bg_prompt_margin: 0.10
+  bg_prompt_warmup_epochs: 2.0
+
+  # 文本锚定掩码原型
+  use_text_anchored_mask: true
+  text_anchor_tau: 0.1
+  text_anchor_map_bias: false
+  text_anchor_sparsity_weight: 0.01      # 抗退化正则，先 0.01 起步
+
+  info_nce_temp: 0.07
+
+  # === Early Stopping ===
+  use_early_stop: true
+  patience: 2
+
+optimizer:
+  type: "AdamW"
+  learning_rate: 0.00005
+  betas: [0.9, 0.999]
+  weight_decay: 0.001
+
+scheduler:
+  warmup_iter: 0
+  warmup_ratio: 0.000001
+  power: 1.0

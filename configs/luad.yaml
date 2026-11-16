@@ -6,15 +6,15 @@
 model:
   hf_token: "REMOVED_HF_TOKEN"
   fpn_out_dims: [64, 128, 320, 512]
-  label_feature_path: "data/prototypes/luad_label_fea_proto_3333.pkl"
+  label_feature_path: "data/prototypes/luad_label_fea_pro_3333.pkl"
   n_ratio: 0.5
   use_lora: false
 
 dataset:
   name: "luad"
-  train_root: "data/LUAD-HistoSeg/training"
-  val_root: "data/LUAD-HistoSeg"
-  test_root: "data/LUAD-HistoSeg"
+  train_root: "E:/dataset/LUAD-HistoSeg/train"
+  val_root: "E:/dataset/LUAD-HistoSeg"
+  test_root: "E:/dataset/LUAD-HistoSeg"
   cls_num_classes: 4  # TE, NEC, LYM, TAS
   input_size: [224, 224]
 
