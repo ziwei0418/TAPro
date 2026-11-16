@@ -4,6 +4,7 @@
 把冻结的 UNI ViT-L/16 作为特征提取器，并在指定 block 的 attn.qkv 上注入 LoRA 低秩适配器，
 从而以极小的可训练参数量微调编码器。前向返回 4 个 block 位置的中间特征。
 """
+import os
 import math
 import torch
 import torch.nn as nn
@@ -48,8 +49,11 @@ class UNIEncoder(nn.Module):
     BLOCK_IDXS = (5, 11, 17, 23)   # ViT-L 共有 24 个 block，取其中 4 个位置
     EMBED_DIM  = 1024
 
-    def __init__(self, hf_token, img_size=224, lora_rank=8, lora_alpha=8.0, use_lora=True):
+    def __init__(self, hf_token=None, img_size=224, lora_rank=8, lora_alpha=8.0, use_lora=True):
         super().__init__()
+        # 若未显式传入 token，则从环境变量 HF_TOKEN 读取（避免硬编码密钥进仓库）
+        if not hf_token:
+            hf_token = os.environ.get("HF_TOKEN", "")
         # 登录 HuggingFace，加载受权限保护的 UNI 权重
         # 离线模式下登录会触发 whoami 网络请求而失败；token 与权重已缓存时可安全跳过
         try:

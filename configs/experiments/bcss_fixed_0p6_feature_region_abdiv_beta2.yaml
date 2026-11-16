@@ -3,7 +3,7 @@
 # ============================================================
 
 model:
-  hf_token: "REMOVED_HF_TOKEN"
+  hf_token: ""  # set via HF_TOKEN env var
   fpn_out_dims: [64, 128, 320, 512]
   label_feature_path: "data/prototypes/bcss_label_fea_pro_3333.pkl"
   n_ratio: 0.5
